@@ -16,3 +16,5 @@ local.properties
 .env
 *.env
 backend/.env
+__pycache__/
+*.pyc
