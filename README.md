@@ -14,7 +14,7 @@
 - Backend (FastAPI)
   - `POST /agent/process`
   - 有 `OPENAI_API_KEY` 时走 LangChain Agent + Tool Calling
-  - 无 Key 时走规则解析，便于离线调试
+  - 无 Key 时仅返回不可用提示，不执行任何动作
 
 ## 快速启动
 
