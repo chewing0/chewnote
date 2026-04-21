@@ -1,6 +1,7 @@
 package com.example.myapplication.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
@@ -33,9 +34,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.myapplication.agent.AppViewModel
+import com.example.myapplication.ui.design.EditorialBackground
 import com.example.myapplication.ui.screen.AgentHomeScreen
 import com.example.myapplication.ui.screen.LedgerScreen
 import com.example.myapplication.ui.screen.ScheduleScreen
+import com.example.myapplication.ui.screen.SettingsScreen
+import com.example.myapplication.ui.theme.AccentVermilion
+import com.example.myapplication.ui.theme.CanvasIvory
+import com.example.myapplication.ui.theme.InkDeep
+import com.example.myapplication.ui.theme.InkSoft
+import com.example.myapplication.ui.theme.LineSoft
 
 private data class NavItem(
     val route: String,
@@ -58,36 +66,37 @@ fun AgentApp() {
             Icon(
                 Icons.Default.CalendarMonth,
                 contentDescription = null,
-                tint = if (selected) Color(0xFF20252A) else Color(0xFF6B7280)
+                tint = if (selected) InkDeep else InkSoft
             )
         },
         NavItem("agent", "交互") { selected ->
             Icon(
                 Icons.AutoMirrored.Filled.Chat,
                 contentDescription = null,
-                tint = if (selected) Color.White else Color(0xFF6B7280)
+                tint = if (selected) CanvasIvory else InkSoft
             )
         },
         NavItem("ledger", "记账") { selected ->
             Icon(
                 Icons.AutoMirrored.Filled.ReceiptLong,
                 contentDescription = null,
-                tint = if (selected) Color(0xFF20252A) else Color(0xFF6B7280)
+                tint = if (selected) InkDeep else InkSoft
             )
         }
     )
 
+    val navigateTo: (String) -> Unit = { route ->
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFF6F0E5),
-                        Color(0xFFEAE2D3)
-                    )
-                )
-            ),
+        modifier = Modifier.fillMaxSize(),
         containerColor = Color.Transparent,
         bottomBar = {
             if (hideBottomBar) {
@@ -99,73 +108,93 @@ fun AgentApp() {
                     modifier = Modifier
                         .padding(horizontal = 18.dp, vertical = 10.dp)
                         .fillMaxWidth()
-                        .background(Color(0xFFF7F1E8), shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp))
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color(0xFFFFF8EC),
+                                    Color(0xFFF0E2CC)
+                                )
+                            ),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = LineSoft,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    navItems.forEachIndexed { index, item ->
-                        val selected = currentRoute == item.route
-                        val isCenter = index == 1
-                        val navigate = {
-                            navController.navigate(item.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        navItems.forEachIndexed { index, item ->
+                            val selected = currentRoute == item.route
+                            val isCenter = index == 1
+                            val navigate = { navigateTo(item.route) }
 
-                        if (isCenter) {
-                            Surface(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clickable(onClick = navigate),
-                                color = if (selected) Color(0xFF20252A) else Color(0xFFE5DED1),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-                                tonalElevation = if (selected) 6.dp else 0.dp
-                            ) {
-                                Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
-                                    item.icon(selected)
-                                }
-                            }
-                        } else {
-                            Surface(
-                                modifier = Modifier
-                                    .clickable(onClick = navigate),
-                                color = Color.Transparent
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            if (isCenter) {
+                                Surface(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clickable(onClick = navigate),
+                                    color = if (selected) AccentVermilion else Color(0xFFE4D5BD),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                                    tonalElevation = if (selected) 6.dp else 0.dp
                                 ) {
-                                    item.icon(selected)
-                                    Text(
-                                        text = item.label,
-                                        color = if (selected) Color(0xFF20252A) else Color(0xFF6B7280)
-                                    )
+                                    Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+                                        item.icon(selected)
+                                    }
+                                }
+                            } else {
+                                Surface(
+                                    modifier = Modifier.clickable(onClick = navigate),
+                                    color = Color.Transparent
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                    ) {
+                                        item.icon(selected)
+                                        Text(
+                                            text = item.label,
+                                            color = if (selected) InkDeep else InkSoft
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+
                 }
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = "agent",
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable("agent") {
-                AgentHomeScreen(viewModel)
-            }
-            composable("ledger") {
-                LedgerScreen(viewModel)
-            }
-            composable("schedule") {
-                ScheduleScreen(viewModel)
+        EditorialBackground {
+            NavHost(
+                navController = navController,
+                startDestination = "agent",
+                modifier = Modifier.padding(innerPadding)
+            ) {
+                composable("agent") {
+                    AgentHomeScreen(
+                        viewModel = viewModel,
+                        onOpenSettings = { navigateTo("settings") }
+                    )
+                }
+                composable("ledger") {
+                    LedgerScreen(viewModel)
+                }
+                composable("schedule") {
+                    ScheduleScreen(viewModel)
+                }
+                composable("settings") {
+                    SettingsScreen(viewModel)
+                }
             }
         }
     }

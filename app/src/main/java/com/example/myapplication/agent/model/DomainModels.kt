@@ -1,5 +1,6 @@
 package com.example.myapplication.agent.model
 
+import com.google.gson.annotations.SerializedName
 import java.time.LocalDate
 import java.util.UUID
 
@@ -22,7 +23,24 @@ data class ScheduleItem(
 
 data class AgentRequest(
     val text: String,
-    val history: List<ChatMessagePayload> = emptyList()
+    val history: List<ChatMessagePayload> = emptyList(),
+    @SerializedName("model_config")
+    val modelConfig: ModelConfigPayload? = null
+)
+
+data class ModelConfigPayload(
+    @SerializedName("base_url")
+    val baseUrl: String,
+    val model: String,
+    @SerializedName("api_key")
+    val apiKey: String
+)
+
+data class ModelSettings(
+    val backendUrl: String = "http://10.0.2.2:8000/",
+    val modelBaseUrl: String = "https://api.moonshot.cn/v1",
+    val modelName: String = "moonshot-v1-8k",
+    val apiKey: String = ""
 )
 
 data class ChatMessagePayload(

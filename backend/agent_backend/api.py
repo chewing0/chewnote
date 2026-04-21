@@ -28,7 +28,8 @@ def create_app() -> FastAPI:
 
     @app.post("/agent/process", response_model=AgentResponse)
     async def process_agent(req: AgentRequest) -> AgentResponse:
-        return await orchestrator.handle(req.text, req.history)
+        model_config = req.runtime_config.model_dump() if req.runtime_config is not None else None
+        return await orchestrator.handle(req.text, req.history, model_config)
 
     return app
 

@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,8 +31,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -48,7 +51,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
@@ -59,13 +61,26 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.agent.AppViewModel
 import com.example.myapplication.agent.model.ChatMessage
+import com.example.myapplication.ui.design.EditorialBackground
+import com.example.myapplication.ui.design.EditorialPanel
+import com.example.myapplication.ui.design.EditorialReveal
+import com.example.myapplication.ui.design.TonePill
+import com.example.myapplication.ui.theme.AccentMoss
+import com.example.myapplication.ui.theme.AccentVermilion
+import com.example.myapplication.ui.theme.CanvasIvory
+import com.example.myapplication.ui.theme.InkDeep
+import com.example.myapplication.ui.theme.InkSoft
+import com.example.myapplication.ui.theme.LineSoft
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun AgentHomeScreen(viewModel: AppViewModel) {
+fun AgentHomeScreen(
+    viewModel: AppViewModel,
+    onOpenSettings: () -> Unit,
+) {
     val uiState by viewModel.uiState.collectAsState()
     val messages by viewModel.chatMessages.collectAsState()
     val listState = rememberLazyListState()
@@ -80,121 +95,138 @@ fun AgentHomeScreen(viewModel: AppViewModel) {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFFFCF7EF), Color(0xFFF0E4D2))
-                )
-            )
-            .padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Card(
+    EditorialBackground {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFCF7)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(30.dp),
-                    color = Color(0xFFEAF5EE)
+            EditorialReveal(delayMillis = 0) {
+                EditorialPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
                 ) {
-                    Text(
-                        text = "在线",
-                        color = Color(0xFF2D6A4F),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            itemsIndexed(messages) { index, message ->
-                if (shouldShowDateHeader(messages, index)) {
-                    DateHeader(dateLabel(message.createdAt))
-                }
-                ChatBubble(
-                    message = message,
-                    onLongPress = { selectedMessage = index to message }
-                )
-            }
-
-            if (uiState.loading) {
-                item {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ThinkingIndicator()
-                        Text("正在思考中...", modifier = Modifier.padding(start = 8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "MyLife",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = InkDeep
+                            )
+                            TonePill(text = "在线", tone = AccentMoss)
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clickable(onClick = onOpenSettings),
+                            color = Color(0xFFE7D8C1),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "设置",
+                                    tint = InkDeep
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
 
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 4.dp)
-                .imePadding(),
-            color = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(16.dp),
-            tonalElevation = 2.dp
-        ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                OutlinedTextField(
-                    value = uiState.input,
-                    onValueChange = viewModel::updateInput,
+            EditorialReveal(
+                modifier = Modifier.weight(1f),
+                delayMillis = 80
+            ) {
+                LazyColumn(
                     modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 56.dp, max = 160.dp),
-                    minLines = 1,
-                    maxLines = 6,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { viewModel.submitInput() }),
-                    placeholder = {
-                        Text("输入消息...")
+                        .fillMaxWidth(),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(messages) { index, message ->
+                        if (shouldShowDateHeader(messages, index)) {
+                            DateHeader(dateLabel(message.createdAt))
+                        }
+                        ChatBubble(
+                            message = message,
+                            onLongPress = { selectedMessage = index to message }
+                        )
                     }
-                )
 
-                    FilledIconButton(
-                        modifier = Modifier.padding(bottom = 4.dp),
-                        onClick = viewModel::submitInput,
-                        enabled = !uiState.loading && uiState.input.isNotBlank()
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                    if (uiState.loading) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Start,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ThinkingIndicator()
+                                Text("正在思考中...", modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
                     }
                 }
+            }
 
-                if (!uiState.error.isNullOrBlank()) {
-                    Text(
-                        text = uiState.error ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
+            EditorialReveal(delayMillis = 160) {
+                EditorialPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp)
+                        .imePadding()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            OutlinedTextField(
+                                value = uiState.input,
+                                onValueChange = viewModel::updateInput,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 56.dp, max = 160.dp),
+                                minLines = 1,
+                                maxLines = 6,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { viewModel.submitInput() }),
+                                placeholder = {
+                                    Text("输入消息，例如：明天10点项目评审，午餐35")
+                                }
+                            )
+
+                            FilledIconButton(
+                                modifier = Modifier.padding(bottom = 4.dp),
+                                onClick = viewModel::submitInput,
+                                enabled = !uiState.loading && uiState.input.isNotBlank(),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = AccentVermilion,
+                                    contentColor = CanvasIvory
+                                )
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                            }
+                        }
+
+                        if (!uiState.error.isNullOrBlank()) {
+                            Text(
+                                text = uiState.error ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -243,11 +275,11 @@ private fun ChatBubble(message: ChatMessage, onLongPress: () -> Unit) {
                 .clip(RoundedCornerShape(16.dp)),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isUser) Color(0xFF2E3944) else Color(0xFFFFFCF7)
+                containerColor = if (isUser) InkDeep else Color(0xFFFFF9EE)
             ),
             border = CardDefaults.outlinedCardBorder().copy(
                 brush = androidx.compose.ui.graphics.SolidColor(
-                    if (isUser) Color(0xFF2E3944) else Color(0xFFE2D8C7)
+                    if (isUser) InkDeep else LineSoft
                 )
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = if (isUser) 3.dp else 1.dp)
@@ -262,12 +294,12 @@ private fun ChatBubble(message: ChatMessage, onLongPress: () -> Unit) {
             ) {
                 Text(
                     text = message.content,
-                    color = if (isUser) Color(0xFFF5F5F5) else Color(0xFF1F2933),
+                    color = if (isUser) CanvasIvory else InkDeep,
                     textAlign = TextAlign.Start
                 )
                 Text(
                     text = timeLabel(message.createdAt),
-                    color = if (isUser) Color(0xFFE5E7EB) else Color(0xFF6B7280),
+                    color = if (isUser) Color(0xFFE7DCC9) else InkSoft,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -283,12 +315,12 @@ private fun DateHeader(text: String) {
     ) {
         Surface(
             shape = RoundedCornerShape(10.dp),
-            color = Color(0xFFF6EEDF)
+            color = Color(0xFFF2E2C8)
         ) {
             Text(
                 text = text,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                color = Color(0xFF6B7280),
+                color = InkSoft,
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -353,6 +385,11 @@ private fun ThinkingIndicator() {
         Dot(scale1)
         Dot(scale2)
         Dot(scale3)
+        Text(
+            text = "处理中",
+            color = InkSoft,
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 

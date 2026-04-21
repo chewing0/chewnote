@@ -5,9 +5,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class ModelConfig(BaseModel):
+    base_url: str = Field(default="", description="LLM API base URL")
+    model: str = Field(default="", description="LLM model name")
+    api_key: str = Field(default="", description="LLM API key")
+
+
 class AgentRequest(BaseModel):
     text: str = Field(min_length=1)
     history: list[dict[str, str]] = Field(default_factory=list)
+    runtime_config: ModelConfig | None = Field(default=None, alias="model_config")
 
 
 class AgentAction(BaseModel):

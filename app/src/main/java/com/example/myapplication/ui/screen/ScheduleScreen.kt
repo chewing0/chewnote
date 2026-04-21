@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -28,16 +29,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.agent.AppViewModel
 import com.example.myapplication.agent.model.ScheduleItem
+import com.example.myapplication.ui.design.EditorialBackground
+import com.example.myapplication.ui.design.EditorialPanel
+import com.example.myapplication.ui.design.EditorialReveal
+import com.example.myapplication.ui.design.EditorialTitle
+import com.example.myapplication.ui.design.TonePill
+import com.example.myapplication.ui.theme.AccentVermilion
+import com.example.myapplication.ui.theme.InkDeep
+import com.example.myapplication.ui.theme.InkSoft
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,49 +58,89 @@ fun ScheduleScreen(viewModel: AppViewModel) {
     val schedules by viewModel.scheduleItems.collectAsState()
     var editingItem by remember { mutableStateOf<ScheduleItem?>(null) }
     var tab by remember { mutableStateOf(ScheduleTab.CALENDAR) }
+    var allFilter by remember { mutableStateOf(AllScheduleFilter.UPCOMING) }
     val datePickerState = rememberDatePickerState(initialSelectedDateMillis = System.currentTimeMillis())
     val selectedDate = datePickerState.selectedDateMillis?.let { millis ->
         Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
     } ?: LocalDate.now()
+    val today = LocalDate.now()
 
     val selectedSchedules = schedules
         .filter { it.date == selectedDate.toString() }
         .sortedBy { parseTimeSafe(it.time) }
 
-    val groupedAllSchedules = schedules
-        .sortedWith(compareBy<ScheduleItem>({ parseDateSafe(it.date) }, { parseTimeSafe(it.time) }))
-        .groupBy { parseDateSafe(it.date) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = "日程",
-            style = MaterialTheme.typography.headlineMedium,
-            fontFamily = FontFamily.Serif
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = tab == ScheduleTab.CALENDAR,
-                onClick = { tab = ScheduleTab.CALENDAR },
-                label = { Text("日历视图") }
-            )
-            FilterChip(
-                selected = tab == ScheduleTab.ALL,
-                onClick = { tab = ScheduleTab.ALL },
-                label = { Text("全部日程") }
-            )
+    val filteredAllSchedules = schedules.filter {
+        val date = parseDateSafe(it.date)
+        when (allFilter) {
+            AllScheduleFilter.UPCOMING -> date >= today
+            AllScheduleFilter.ALL -> true
+            AllScheduleFilter.HISTORY -> date < today
         }
+    }
 
-        if (tab == ScheduleTab.CALENDAR) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+    val groupedAllSchedules = when (allFilter) {
+        AllScheduleFilter.HISTORY -> filteredAllSchedules
+            .sortedWith(compareByDescending<ScheduleItem> { parseDateTimeSafe(it) })
+            .groupBy { parseDateSafe(it.date) }
+
+        else -> filteredAllSchedules
+            .sortedWith(compareBy<ScheduleItem> { parseDateTimeSafe(it) })
+            .groupBy { parseDateSafe(it.date) }
+    }
+
+    EditorialBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            EditorialReveal(delayMillis = 0) {
+                EditorialPanel(modifier = Modifier.fillMaxWidth()) {
+                    EditorialTitle(
+                        title = "日程",
+                        subtitle = "查看、筛选并维护你的时间安排",
+                        modifier = Modifier.padding(14.dp),
+                        trailing = {
+                            TonePill(text = "${schedules.size} 项", tone = AccentVermilion)
+                        }
+                    )
+                }
+            }
+
+            EditorialReveal(delayMillis = 80) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = tab == ScheduleTab.CALENDAR,
+                        onClick = { tab = ScheduleTab.CALENDAR },
+                        label = { Text("日历视图") }
+                    )
+                    FilterChip(
+                        selected = tab == ScheduleTab.ALL,
+                        onClick = { tab = ScheduleTab.ALL },
+                        label = { Text("全部日程") }
+                    )
+                }
+            }
+
+            EditorialReveal(delayMillis = 140) {
+                if (tab == ScheduleTab.CALENDAR) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                item {
+                    QuickDateActions(
+                        selectedDate = selectedDate,
+                        onSelectDate = { date ->
+                            datePickerState.selectedDateMillis = date
+                                .atStartOfDay(ZoneId.systemDefault())
+                                .toInstant()
+                                .toEpochMilli()
+                        }
+                    )
+                }
+
                 item {
                     Card {
                         DatePicker(
@@ -99,37 +152,69 @@ fun ScheduleScreen(viewModel: AppViewModel) {
                 }
 
                 item {
-                    Text(
-                        text = "${selectedDate} 的安排 (${selectedSchedules.size})",
-                        style = MaterialTheme.typography.titleMedium
+                    SelectedDateSummary(
+                        selectedDate = selectedDate,
+                        count = selectedSchedules.size
                     )
                 }
 
-                items(selectedSchedules) { item ->
-                    ScheduleItemCard(
-                        item = item,
-                        onEdit = { editingItem = it },
-                        onDelete = { viewModel.deleteSchedule(it.id) }
-                    )
-                }
-            }
-        } else {
-            Text(
-                text = "全部安排 (${schedules.size})",
-                style = MaterialTheme.typography.titleMedium
-            )
-
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                groupedAllSchedules.forEach { (day, itemsOfDay) ->
+                if (selectedSchedules.isEmpty()) {
                     item {
-                        DateSectionHeader(day)
+                        ScheduleEmptyState(date = selectedDate)
                     }
-                    items(itemsOfDay) { item ->
-                        ScheduleAgendaCard(
+                } else {
+                    items(selectedSchedules) { item ->
+                        ScheduleItemCard(
                             item = item,
                             onEdit = { editingItem = it },
                             onDelete = { viewModel.deleteSchedule(it.id) }
                         )
+                    }
+                }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "全部安排 (${filteredAllSchedules.size})",
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = allFilter == AllScheduleFilter.UPCOMING,
+                        onClick = { allFilter = AllScheduleFilter.UPCOMING },
+                        label = { Text("未来优先") }
+                    )
+                    FilterChip(
+                        selected = allFilter == AllScheduleFilter.ALL,
+                        onClick = { allFilter = AllScheduleFilter.ALL },
+                        label = { Text("全部") }
+                    )
+                    FilterChip(
+                        selected = allFilter == AllScheduleFilter.HISTORY,
+                        onClick = { allFilter = AllScheduleFilter.HISTORY },
+                        label = { Text("历史") }
+                    )
+                }
+
+                if (groupedAllSchedules.isEmpty()) {
+                    ScheduleEmptyState(date = selectedDate, title = "当前筛选下暂无日程")
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        groupedAllSchedules.forEach { (day, itemsOfDay) ->
+                            item {
+                                DateSectionHeader(day)
+                            }
+                            items(itemsOfDay) { item ->
+                                ScheduleAgendaCard(
+                                    item = item,
+                                    onEdit = { editingItem = it },
+                                    onDelete = { viewModel.deleteSchedule(it.id) }
+                                )
+                            }
+                        }
+                    }
+                }
                     }
                 }
             }
@@ -153,6 +238,82 @@ private enum class ScheduleTab {
     ALL
 }
 
+private enum class AllScheduleFilter {
+    UPCOMING,
+    ALL,
+    HISTORY
+}
+
+@Composable
+private fun QuickDateActions(
+    selectedDate: LocalDate,
+    onSelectDate: (LocalDate) -> Unit
+) {
+    val today = LocalDate.now()
+    val tomorrow = today.plusDays(1)
+    val nextWeek = today.plusDays(7)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = selectedDate == today,
+            onClick = { onSelectDate(today) },
+            label = { Text("今天") }
+        )
+        FilterChip(
+            selected = selectedDate == tomorrow,
+            onClick = { onSelectDate(tomorrow) },
+            label = { Text("明天") }
+        )
+        FilterChip(
+            selected = selectedDate == nextWeek,
+            onClick = { onSelectDate(nextWeek) },
+            label = { Text("7天后") }
+        )
+    }
+}
+
+@Composable
+private fun SelectedDateSummary(
+    selectedDate: LocalDate,
+    count: Int
+) {
+    val dayOfWeek = selectedDate.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.SIMPLIFIED_CHINESE)
+    val dateText = selectedDate.format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"))
+    Surface(
+        color = Color(0xFFF4E8D6),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(text = "$dateText  $dayOfWeek", style = MaterialTheme.typography.titleMedium, color = InkDeep)
+            Text(text = "当日安排 $count 项", color = InkSoft)
+        }
+    }
+}
+
+@Composable
+private fun ScheduleEmptyState(
+    date: LocalDate,
+    title: String = "当天暂无安排"
+) {
+    Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "${date.format(DateTimeFormatter.ofPattern("MM月dd日"))} 目前没有日程。可在交互页输入“明天 10 点开会”快速添加。",
+                color = InkSoft
+            )
+        }
+    }
+}
+
 @Composable
 private fun DateSectionHeader(day: LocalDate) {
     val text = day.format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"))
@@ -160,7 +321,7 @@ private fun DateSectionHeader(day: LocalDate) {
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            color = Color(0xFF5A5F66)
+            color = InkSoft
         )
     }
 }
@@ -179,7 +340,7 @@ private fun ScheduleAgendaCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Surface(
-                color = Color(0xFF2E3944),
+                color = AccentVermilion,
                 shape = MaterialTheme.shapes.small
             ) {
                 Text(
@@ -190,10 +351,10 @@ private fun ScheduleAgendaCard(
             }
 
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(text = item.title, style = MaterialTheme.typography.titleMedium)
-                Text(text = item.date, color = Color(0xFF6B7280))
+                Text(text = item.title, style = MaterialTheme.typography.titleMedium, color = InkDeep)
+                Text(text = item.date, color = InkSoft)
                 if (item.note.isNotBlank()) {
-                    Text(text = item.note)
+                    Text(text = item.note, color = InkSoft)
                 }
                 Spacer(modifier = Modifier)
                 Row(
@@ -225,10 +386,10 @@ private fun ScheduleItemCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(text = item.title, style = MaterialTheme.typography.titleMedium)
-            Text(text = "时间: ${item.date} ${item.time}")
+            Text(text = item.title, style = MaterialTheme.typography.titleMedium, color = InkDeep)
+            Text(text = "时间: ${item.date} ${item.time}", color = InkSoft)
             if (item.note.isNotBlank()) {
-                Text(text = item.note)
+                Text(text = item.note, color = InkSoft)
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -288,4 +449,8 @@ private fun parseDateSafe(dateString: String): LocalDate {
 
 private fun parseTimeSafe(timeString: String): LocalTime {
     return runCatching { LocalTime.parse(timeString) }.getOrElse { LocalTime.of(23, 59) }
+}
+
+private fun parseDateTimeSafe(item: ScheduleItem): LocalDateTime {
+    return LocalDateTime.of(parseDateSafe(item.date), parseTimeSafe(item.time))
 }

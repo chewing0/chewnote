@@ -2,9 +2,12 @@ package com.example.myapplication.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Paper = Color(0xFFF6F0E5)
-val Sand = Color(0xFFE8DECA)
-val Ink = Color(0xFF2E3944)
-val Copper = Color(0xFFC16E46)
-val Mist = Color(0xFFD9E2EC)
+val CanvasIvory = Color(0xFFF8F1E3)
+val CanvasWarm = Color(0xFFEADBC5)
+val InkDeep = Color(0xFF1E2430)
+val InkSoft = Color(0xFF394357)
+val AccentVermilion = Color(0xFFD25E3D)
+val AccentMoss = Color(0xFF5B7A5A)
+val PaperCard = Color(0xFFFFFAF2)
+val LineSoft = Color(0xFFD6C7AF)
 val Charcoal = Color(0xFF20252A)

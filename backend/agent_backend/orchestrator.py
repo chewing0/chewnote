@@ -8,8 +8,13 @@ class AgentOrchestrator:
     def __init__(self) -> None:
         self.llm = LLMClient()
 
-    async def handle(self, text: str, history: list[dict[str, str]] | None = None) -> AgentResponse:
-        parsed = await self.llm.parse(text, history)
+    async def handle(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None = None,
+        model_config: dict[str, str] | None = None,
+    ) -> AgentResponse:
+        parsed = await self.llm.parse(text, history, model_config)
         direct_actions = parsed.get("actions") if isinstance(parsed, dict) else None
         actions = [
             AgentAction(type=item["type"], payload=item["payload"])

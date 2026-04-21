@@ -8,9 +8,9 @@ import com.example.myapplication.agent.model.AgentAction
 import com.example.myapplication.agent.model.ChatMessage
 import com.example.myapplication.agent.model.ChatMessagePayload
 import com.example.myapplication.agent.model.LedgerEntry
+import com.example.myapplication.agent.model.ModelSettings
 import com.example.myapplication.agent.model.ScheduleItem
 import com.example.myapplication.agent.net.AgentRepository
-import com.example.myapplication.agent.net.NetworkModule
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,7 +27,7 @@ data class AgentUiState(
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val localStore = LocalStore(application.applicationContext)
-    private val repository = AgentRepository(NetworkModule.agentApi)
+    private val repository = AgentRepository()
 
     private val _uiState = MutableStateFlow(AgentUiState())
     val uiState: StateFlow<AgentUiState> = _uiState.asStateFlow()
@@ -48,6 +48,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         emptyList()
+    )
+
+    val modelSettings: StateFlow<ModelSettings> = localStore.observeModelSettings().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        ModelSettings()
     )
 
     init {
@@ -85,7 +91,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             runCatching {
-                repository.processNaturalLanguage(content, requestHistory)
+                repository.processNaturalLanguage(content, requestHistory, modelSettings.value)
             }.onSuccess { response ->
                 response.actions.forEach { action ->
                     applyAction(action)
@@ -165,6 +171,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteChatMessageAt(index: Int) {
         viewModelScope.launch {
             localStore.deleteChatMessageAt(index)
+        }
+    }
+
+    fun saveModelSettings(settings: ModelSettings) {
+        viewModelScope.launch {
+            localStore.saveModelSettings(settings)
         }
     }
 }

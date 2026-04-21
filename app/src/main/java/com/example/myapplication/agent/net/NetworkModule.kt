@@ -8,8 +8,7 @@ import java.util.concurrent.TimeUnit
 
 object NetworkModule {
     // Emulator can call host machine backend with 10.0.2.2
-    private const val BASE_URL = "http://10.0.2.2:8000/"
-    // private const val BASE_URL = "http://10.108.10.99:8000/"
+    private const val DEFAULT_BASE_URL = "http://10.0.2.2:8000/"
 
     private val client: OkHttpClient by lazy {
         val logger = HttpLoggingInterceptor().apply {
@@ -24,15 +23,32 @@ object NetworkModule {
             .build()
     }
 
-    private val retrofit: Retrofit by lazy {
-        Retrofit.Builder()
-            .baseUrl(BASE_URL)
+    private fun sanitizeBaseUrl(url: String): String {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return DEFAULT_BASE_URL
+
+        val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            trimmed
+        } else {
+            "http://$trimmed"
+        }
+
+        val normalized = withScheme.removeSuffix("/")
+        val emulatorReachable = normalized
+            .replace("://127.0.0.1", "://10.0.2.2")
+            .replace("://localhost", "://10.0.2.2")
+        return "$emulatorReachable/"
+    }
+
+    private fun createRetrofit(baseUrl: String): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl(sanitizeBaseUrl(baseUrl))
             .addConverterFactory(GsonConverterFactory.create())
             .client(client)
             .build()
     }
 
-    val agentApi: AgentApi by lazy {
-        retrofit.create(AgentApi::class.java)
+    fun createAgentApi(baseUrl: String): AgentApi {
+        return createRetrofit(baseUrl).create(AgentApi::class.java)
     }
 }

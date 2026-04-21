@@ -2,6 +2,7 @@ package com.example.myapplication.ui.screen
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -31,11 +33,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.agent.AppViewModel
 import com.example.myapplication.agent.model.LedgerEntry
+import com.example.myapplication.ui.design.EditorialBackground
+import com.example.myapplication.ui.design.EditorialPanel
+import com.example.myapplication.ui.design.EditorialReveal
+import com.example.myapplication.ui.design.EditorialTitle
+import com.example.myapplication.ui.design.TonePill
+import com.example.myapplication.ui.theme.AccentVermilion
+import com.example.myapplication.ui.theme.InkDeep
+import com.example.myapplication.ui.theme.InkSoft
+import com.example.myapplication.ui.theme.LineSoft
 import java.time.LocalDate
 import java.time.YearMonth
 import kotlin.math.absoluteValue
@@ -53,68 +66,151 @@ fun LedgerScreen(viewModel: AppViewModel) {
     val categoryData = remember(filteredEntries) { buildCategoryExpenseData(filteredEntries) }
     val trendData = remember(entries, period) { buildTrendData(entries, period) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = "记账",
-            style = MaterialTheme.typography.headlineMedium,
-            fontFamily = FontFamily.Serif
-        )
+    EditorialBackground {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                EditorialReveal(delayMillis = 0) {
+                    EditorialPanel(modifier = Modifier.padding(top = 16.dp)) {
+                        EditorialTitle(
+                            title = "记账",
+                            subtitle = "掌握现金流，保持收支平衡",
+                            modifier = Modifier.padding(14.dp),
+                            trailing = {
+                                TonePill(text = period.name, tone = AccentVermilion)
+                            }
+                        )
+                    }
+                }
+            }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = period == StatsPeriod.DAY, onClick = { period = StatsPeriod.DAY }, label = { Text("按日") })
-            FilterChip(selected = period == StatsPeriod.MONTH, onClick = { period = StatsPeriod.MONTH }, label = { Text("按月") })
-            FilterChip(selected = period == StatsPeriod.YEAR, onClick = { period = StatsPeriod.YEAR }, label = { Text("按年") })
-        }
-
-        Card {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("支出: ¥${"%.2f".format(expense)}")
-                Text("收入: ¥${"%.2f".format(income)}")
-                Text("结余: ¥${"%.2f".format(net)}")
+        item {
+            EditorialReveal(delayMillis = 80) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = period == StatsPeriod.DAY, onClick = { period = StatsPeriod.DAY }, label = { Text("按日") })
+                    FilterChip(selected = period == StatsPeriod.MONTH, onClick = { period = StatsPeriod.MONTH }, label = { Text("按月") })
+                    FilterChip(selected = period == StatsPeriod.YEAR, onClick = { period = StatsPeriod.YEAR }, label = { Text("按年") })
+                }
             }
         }
 
-        Card {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("分类占比", style = MaterialTheme.typography.titleMedium)
-                PieChart(categoryData = categoryData)
+        item {
+            EditorialReveal(delayMillis = 140) {
+                Card {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFFFFF6E6), Color(0xFFF4E2C3))
+                                ),
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "本期结余",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkSoft
+                        )
+                        Text(
+                            text = "¥${"%.2f".format(net)}",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (net >= 0) Color(0xFF2F6B3C) else AccentVermilion
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SummaryMetricCard(
+                                modifier = Modifier.weight(1f),
+                                label = "支出",
+                                value = "¥${"%.2f".format(expense)}",
+                                tone = Color(0xFF9A3B2A)
+                            )
+                            SummaryMetricCard(
+                                modifier = Modifier.weight(1f),
+                                label = "收入",
+                                value = "¥${"%.2f".format(income)}",
+                                tone = Color(0xFF2F6B3C)
+                            )
+                            SummaryMetricCard(
+                                modifier = Modifier.weight(1f),
+                                label = "结余",
+                                value = "¥${"%.2f".format(net)}",
+                                tone = if (net >= 0) Color(0xFF2F6B3C) else AccentVermilion
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        Card {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("趋势统计", style = MaterialTheme.typography.titleMedium)
-                BarChart(data = trendData)
+        item {
+            Card {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("分类占比", style = MaterialTheme.typography.titleMedium)
+                    PieChart(categoryData = categoryData)
+                }
             }
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(filteredEntries) { entry ->
+        item {
+            Card {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("趋势统计", style = MaterialTheme.typography.titleMedium)
+                    BarChart(data = trendData)
+                }
+            }
+        }
+
+        item {
+            Text(
+                text = "账单明细",
+                style = MaterialTheme.typography.titleMedium,
+                color = InkDeep
+            )
+        }
+
+        if (filteredEntries.isEmpty()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "当前周期暂无账单记录",
+                        modifier = Modifier.padding(14.dp),
+                        color = InkSoft
+                    )
+                }
+            }
+        } else {
+            items(filteredEntries, key = { it.id }) { entry ->
                 LedgerItem(
                     entry = entry,
                     onEdit = { editingEntry = it },
                     onDelete = { viewModel.deleteLedger(it.id) }
                 )
+            }
+        }
+
+            item {
+                androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(bottom = 12.dp))
             }
         }
     }
@@ -141,12 +237,29 @@ private fun LedgerItem(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(14.dp)
+                .border(1.dp, LineSoft, MaterialTheme.shapes.medium)
+                .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(text = "${entry.category}  ¥${"%.2f".format(entry.amount)}")
-            Text(text = entry.note, style = MaterialTheme.typography.bodyMedium)
-            Text(text = "${entry.date}  ${if (entry.entryType == "expense") "支出" else "收入"}")
+            Text(
+                text = "${entry.category}  ¥${"%.2f".format(entry.amount)}",
+                color = InkDeep,
+                style = MaterialTheme.typography.titleMedium
+            )
+            if (entry.note.isNotBlank()) {
+                Text(text = entry.note, style = MaterialTheme.typography.bodyMedium, color = InkSoft)
+            }
+            Surface(
+                color = Color(0xFFF4E7D2),
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = "${entry.date}  ${if (entry.entryType == "expense") "支出" else "收入"}",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    color = InkSoft
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
@@ -159,6 +272,34 @@ private fun LedgerItem(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SummaryMetricCard(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+    tone: Color
+) {
+    Column(
+        modifier = modifier
+            .background(Color.White.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = InkSoft
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = tone
+        )
     }
 }
 

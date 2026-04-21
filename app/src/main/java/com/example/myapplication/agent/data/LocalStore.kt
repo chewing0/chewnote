@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.myapplication.agent.model.ChatMessage
 import com.example.myapplication.agent.model.LedgerEntry
+import com.example.myapplication.agent.model.ModelSettings
 import com.example.myapplication.agent.model.ScheduleItem
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -21,6 +22,7 @@ class LocalStore(private val context: Context) {
     private val ledgerKey = stringPreferencesKey("ledger_entries")
     private val scheduleKey = stringPreferencesKey("schedule_items")
     private val chatMessagesKey = stringPreferencesKey("chat_messages")
+    private val modelSettingsKey = stringPreferencesKey("model_settings")
 
     fun observeLedgerEntries(): Flow<List<LedgerEntry>> {
         return context.agentDataStore.data.map { prefs ->
@@ -37,6 +39,13 @@ class LocalStore(private val context: Context) {
     fun observeChatMessages(): Flow<List<ChatMessage>> {
         return context.agentDataStore.data.map { prefs ->
             decodeList(prefs, chatMessagesKey)
+        }
+    }
+
+    fun observeModelSettings(): Flow<ModelSettings> {
+        return context.agentDataStore.data.map { prefs ->
+            val json = prefs[modelSettingsKey] ?: return@map ModelSettings()
+            runCatching { gson.fromJson(json, ModelSettings::class.java) }.getOrDefault(ModelSettings())
         }
     }
 
@@ -106,6 +115,12 @@ class LocalStore(private val context: Context) {
             if (current.isEmpty()) {
                 prefs[chatMessagesKey] = gson.toJson(listOf(message))
             }
+        }
+    }
+
+    suspend fun saveModelSettings(settings: ModelSettings) {
+        context.agentDataStore.edit { prefs ->
+            prefs[modelSettingsKey] = gson.toJson(settings)
         }
     }
 
