@@ -13,6 +13,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.time.LocalDate
+import java.time.format.DateTimeFormatterBuilder
+import java.time.temporal.ChronoField
 
 private val Context.agentDataStore by preferencesDataStore(name = "agent_store")
 
@@ -27,7 +30,7 @@ class LocalStore(private val context: Context) {
 
     fun observeLedgerEntries(): Flow<List<LedgerEntry>> {
         return context.agentDataStore.data.map { prefs ->
-            decodeList(prefs, ledgerKey)
+            decodeList<LedgerEntry>(prefs, ledgerKey).map(::normalizeLedgerEntry)
         }
     }
 
@@ -64,14 +67,20 @@ class LocalStore(private val context: Context) {
     suspend fun appendLedger(entry: LedgerEntry) {
         context.agentDataStore.edit { prefs ->
             val current = decodeList<LedgerEntry>(prefs, ledgerKey)
-            prefs[ledgerKey] = gson.toJson(listOf(entry) + current)
+            prefs[ledgerKey] = gson.toJson(listOf(normalizeLedgerEntry(entry)) + current.map(::normalizeLedgerEntry))
         }
     }
 
     suspend fun updateLedger(entry: LedgerEntry) {
         context.agentDataStore.edit { prefs ->
             val current = decodeList<LedgerEntry>(prefs, ledgerKey)
-            val updated = current.map { if (it.id == entry.id) entry else it }
+            val updated = current.map {
+                if (it.id == entry.id) {
+                    normalizeLedgerEntry(entry)
+                } else {
+                    normalizeLedgerEntry(it)
+                }
+            }
             prefs[ledgerKey] = gson.toJson(updated)
         }
     }
@@ -174,6 +183,18 @@ class LocalStore(private val context: Context) {
         }
     }
 
+    suspend fun migrateLegacyLedgerEntries() {
+        context.agentDataStore.edit { prefs ->
+            val current = decodeList<LedgerEntry>(prefs, ledgerKey)
+            if (current.isEmpty()) return@edit
+
+            val normalized = current.map(::normalizeLedgerEntry)
+            if (normalized != current) {
+                prefs[ledgerKey] = gson.toJson(normalized)
+            }
+        }
+    }
+
     private inline fun <reified T> decodeList(
         prefs: Preferences,
         key: Preferences.Key<String>
@@ -181,5 +202,49 @@ class LocalStore(private val context: Context) {
         val json = prefs[key] ?: return emptyList()
         val type = object : TypeToken<List<T>>() {}.type
         return runCatching { gson.fromJson<List<T>>(json, type) }.getOrDefault(emptyList())
+    }
+
+    private fun normalizeLedgerEntry(entry: LedgerEntry): LedgerEntry {
+        return entry.copy(
+            date = normalizeLedgerDate(entry.date),
+            entryType = normalizeLedgerEntryType(entry.entryType)
+        )
+    }
+
+    private fun normalizeLedgerDate(raw: String): String {
+        val sanitized = raw.trim()
+            .substringBefore("T")
+            .substringBefore(" ")
+            .replace("年", "-")
+            .replace("月", "-")
+            .replace("日", "")
+            .replace("/", "-")
+            .replace(".", "-")
+            .trim('-')
+
+        if (sanitized.isBlank()) {
+            return LocalDate.now().toString()
+        }
+
+        val formatter = DateTimeFormatterBuilder()
+            .appendValue(ChronoField.YEAR, 4)
+            .appendLiteral('-')
+            .appendValue(ChronoField.MONTH_OF_YEAR)
+            .appendLiteral('-')
+            .appendValue(ChronoField.DAY_OF_MONTH)
+            .toFormatter()
+
+        return runCatching {
+            LocalDate.parse(sanitized, formatter).toString()
+        }.getOrElse {
+            LocalDate.now().toString()
+        }
+    }
+
+    private fun normalizeLedgerEntryType(raw: String): String {
+        return when (raw.trim().lowercase()) {
+            "income", "收入", "入账", "进账", "earning", "earnings" -> "income"
+            else -> "expense"
+        }
     }
 }

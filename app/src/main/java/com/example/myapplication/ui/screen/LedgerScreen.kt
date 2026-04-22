@@ -351,6 +351,19 @@ private data class ChartItem(
     val color: Color = Color(0xFF6B7280)
 )
 
+private val MorandiChartPalette = listOf(
+    Color(0xFFB58A86),
+    Color(0xFF8AA0AF),
+    Color(0xFF95A68E),
+    Color(0xFFC4A596),
+    Color(0xFFC5B18A),
+    Color(0xFF8DA8A2),
+)
+
+private val MorandiDailyTone = Color(0xFF8AA0AF)
+private val MorandiMonthlyTone = Color(0xFF95A68E)
+private val MorandiYearlyTone = Color(0xFFB58A86)
+
 private fun filterEntriesByPeriod(entries: List<LedgerEntry>, period: StatsPeriod): List<LedgerEntry> {
     val today = LocalDate.now()
     val thisMonth = YearMonth.now()
@@ -366,14 +379,7 @@ private fun filterEntriesByPeriod(entries: List<LedgerEntry>, period: StatsPerio
 }
 
 private fun buildCategoryExpenseData(entries: List<LedgerEntry>): List<ChartItem> {
-    val colors = listOf(
-        Color(0xFFC16E46),
-        Color(0xFF4E79A7),
-        Color(0xFF59A14F),
-        Color(0xFFE15759),
-        Color(0xFFEDC949),
-        Color(0xFF76B7B2),
-    )
+    val colors = MorandiChartPalette
     val grouped = entries
         .filter { it.entryType == "expense" }
         .groupBy { it.category }
@@ -382,7 +388,7 @@ private fun buildCategoryExpenseData(entries: List<LedgerEntry>): List<ChartItem
         .sortedByDescending { it.second }
 
     if (grouped.isEmpty()) {
-        return listOf(ChartItem("暂无支出", 1.0, Color(0xFFD0D5DD)))
+        return listOf(ChartItem("暂无支出", 1.0, Color(0xFFD7D3CB)))
     }
 
     return grouped.mapIndexed { index, pair ->
@@ -398,7 +404,7 @@ private fun buildTrendData(entries: List<LedgerEntry>, period: StatsPeriod): Lis
                 val day = today.minusDays(offset.toLong())
                 val value = entries.filter { it.entryType == "expense" && it.date == day.toString() }
                     .sumOf { it.amount.absoluteValue }
-                ChartItem(day.dayOfMonth.toString(), value, Color(0xFF4E79A7))
+                ChartItem(day.dayOfMonth.toString(), value, MorandiDailyTone)
             }
         }
 
@@ -412,7 +418,7 @@ private fun buildTrendData(entries: List<LedgerEntry>, period: StatsPeriod): Lis
                         d != null && YearMonth.from(d) == month
                     }
                     .sumOf { it.amount.absoluteValue }
-                ChartItem("${month.monthValue}月", value, Color(0xFF59A14F))
+                ChartItem("${month.monthValue}月", value, MorandiMonthlyTone)
             }
         }
 
@@ -424,7 +430,7 @@ private fun buildTrendData(entries: List<LedgerEntry>, period: StatsPeriod): Lis
                     .filter { it.entryType == "expense" }
                     .filter { runCatching { LocalDate.parse(it.date).year == y }.getOrDefault(false) }
                     .sumOf { it.amount.absoluteValue }
-                ChartItem("$y", value, Color(0xFFC16E46))
+                ChartItem("$y", value, MorandiYearlyTone)
             }
         }
     }

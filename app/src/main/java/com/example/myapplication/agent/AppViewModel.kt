@@ -61,6 +61,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             localStore.migrateLegacyModelSettings()
+            localStore.migrateLegacyLedgerEntries()
             localStore.migrateLegacyWelcomeMessage(
                 oldContent = legacyWelcomeMessage,
                 newContent = currentWelcomeMessage

@@ -217,10 +217,7 @@ fun AgentHomeScreen(
                                 minLines = 1,
                                 maxLines = 6,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(onSend = { viewModel.submitInput() }),
-                                placeholder = {
-                                    Text("输入消息，例如：明天10点项目评审，午餐35")
-                                }
+                                keyboardActions = KeyboardActions(onSend = { viewModel.submitInput() })
                             )
 
                             FilledIconButton(
