@@ -28,6 +28,8 @@ data class AgentUiState(
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val localStore = LocalStore(application.applicationContext)
     private val repository = AgentRepository()
+    private val legacyWelcomeMessage = "你好，我是 TimePaper Agent。你可以和我聊天，也可以让我记账和安排日程。"
+    private val currentWelcomeMessage = "你好，我是 MyLife Agent。你可以和我聊天，也可以让我记账和安排日程。"
 
     private val _uiState = MutableStateFlow(AgentUiState())
     val uiState: StateFlow<AgentUiState> = _uiState.asStateFlow()
@@ -58,10 +60,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            localStore.migrateLegacyModelSettings()
+            localStore.migrateLegacyWelcomeMessage(
+                oldContent = legacyWelcomeMessage,
+                newContent = currentWelcomeMessage
+            )
             localStore.ensureWelcomeMessage(
                 ChatMessage(
                     role = "assistant",
-                    content = "你好，我是 TimePaper Agent。你可以和我聊天，也可以让我记账和安排日程。"
+                    content = currentWelcomeMessage
                 )
             )
         }

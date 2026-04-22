@@ -5,7 +5,7 @@
 ```bash
 cd backend
 python -m venv .venv
-.venv\\Scripts\\activate
+.venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
 uvicorn main:app --reload --port 8000
@@ -20,6 +20,12 @@ uvicorn main:app --reload --port 8000
 
 如果不配置 API Key，后端仅返回提示信息，不会执行工具调用。
 
+说明：
+
+- 后端支持直接读取 `.env` 中的模型配置
+- 也支持客户端在请求体里通过 `model_config` 传入 `base_url / model / api_key`
+- 当请求体带了 `model_config`，后端会优先使用请求内配置；没有时才回退到环境变量
+
 ## 3. 接口
 
 - `GET /health`
@@ -29,7 +35,13 @@ uvicorn main:app --reload --port 8000
 
 ```json
 {
-  "text": "明天下午3点和客户复盘，咖啡28元"
+  "text": "明天下午3点和客户复盘，咖啡28元",
+  "history": [],
+  "model_config": {
+    "base_url": "https://api.moonshot.cn/v1",
+    "model": "moonshot-v1-8k",
+    "api_key": "your_api_key"
+  }
 }
 ```
 
@@ -65,19 +77,21 @@ uvicorn main:app --reload --port 8000
 ## 4. Agent 技术栈
 
 - LangChain AgentExecutor
-- Tool Calling（`add_schedule` / `add_ledger`）
+- Tool Calling（`add_schedule` / `add_schedule_series` / `add_ledger`）
 - `langchain-openai` 连接 Kimi（OpenAI 兼容接口）
 
 流程：
 
 1. Agent 根据自然语言判断是否需要记日程、记账
 2. 通过工具调用生成结构化动作
-3. 后端统一返回 `reply + actions` 给安卓端
+3. 连续多天日程会先在后端展开为多条 `add_schedule`
+4. 后端统一返回 `reply + actions` 给安卓端
 
 聊天行为：
 
 - 普通聊天：只返回 reply，actions 为空
 - 涉及日程：调用 add_schedule 并在 actions 返回记录动作
+- 涉及连续多天重复日程：调用 add_schedule_series，再展开为多条 add_schedule
 - 涉及记账：调用 add_ledger 并在 actions 返回记录动作
 - 同时涉及日程和记账：会同时调用两个工具
 
@@ -88,3 +102,9 @@ uvicorn main:app --reload --port 8000
 - `agent_backend/llm_client.py`: LangChain Agent 与工具实现
 - `agent_backend/orchestrator.py`: 动作编排与后处理
 - `agent_backend/api.py`: FastAPI 路由与应用组装
+
+## 6. 联调约定
+
+- Android 模拟器默认访问 `http://10.0.2.2:8000/`
+- 如果客户端设置页填了模型配置，请求会把 `model_config` 透传给后端
+- 客户端当前已收紧网络日志，不会打印完整请求体

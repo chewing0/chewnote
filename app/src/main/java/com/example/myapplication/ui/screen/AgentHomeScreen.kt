@@ -3,21 +3,29 @@ package com.example.myapplication.ui.screen
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,10 +36,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -40,8 +50,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,9 +59,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
@@ -148,8 +156,7 @@ fun AgentHomeScreen(
                 delayMillis = 80
             ) {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -163,8 +170,12 @@ fun AgentHomeScreen(
                         )
                     }
 
-                    if (uiState.loading) {
-                        item {
+                    item {
+                        AnimatedVisibility(
+                            visible = uiState.loading,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.Start,
@@ -196,7 +207,13 @@ fun AgentHomeScreen(
                                 onValueChange = viewModel::updateInput,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .heightIn(min = 56.dp, max = 160.dp),
+                                    .heightIn(min = 56.dp, max = 160.dp)
+                                    .animateContentSize(
+                                        animationSpec = spring(
+                                            dampingRatio = 0.9f,
+                                            stiffness = 700f
+                                        )
+                                    ),
                                 minLines = 1,
                                 maxLines = 6,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -219,7 +236,11 @@ fun AgentHomeScreen(
                             }
                         }
 
-                        if (!uiState.error.isNullOrBlank()) {
+                        AnimatedVisibility(
+                            visible = !uiState.error.isNullOrBlank(),
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
                             Text(
                                 text = uiState.error ?: "",
                                 style = MaterialTheme.typography.bodySmall,
@@ -272,7 +293,13 @@ private fun ChatBubble(message: ChatMessage, onLongPress: () -> Unit) {
         Card(
             modifier = Modifier
                 .widthIn(max = 300.dp)
-                .clip(RoundedCornerShape(16.dp)),
+                .clip(RoundedCornerShape(16.dp))
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = 0.92f,
+                        stiffness = 760f
+                    )
+                ),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
                 containerColor = if (isUser) InkDeep else Color(0xFFFFF9EE)
@@ -365,19 +392,28 @@ private fun ThinkingIndicator() {
     val scale1 by transition.animateFloat(
         initialValue = 0.5f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(500), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(
+            tween(durationMillis = 520, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
         label = "dot1"
     )
     val scale2 by transition.animateFloat(
         initialValue = 0.5f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(500, delayMillis = 120), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(
+            tween(durationMillis = 520, delayMillis = 120, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
         label = "dot2"
     )
     val scale3 by transition.animateFloat(
         initialValue = 0.5f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(500, delayMillis = 240), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(
+            tween(durationMillis = 520, delayMillis = 240, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
         label = "dot3"
     )
 

@@ -1,15 +1,22 @@
 package com.example.myapplication.ui.screen
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,7 +42,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.agent.AppViewModel
@@ -88,126 +94,150 @@ fun LedgerScreen(viewModel: AppViewModel) {
                 }
             }
 
-        item {
-            EditorialReveal(delayMillis = 80) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = period == StatsPeriod.DAY, onClick = { period = StatsPeriod.DAY }, label = { Text("按日") })
-                    FilterChip(selected = period == StatsPeriod.MONTH, onClick = { period = StatsPeriod.MONTH }, label = { Text("按月") })
-                    FilterChip(selected = period == StatsPeriod.YEAR, onClick = { period = StatsPeriod.YEAR }, label = { Text("按年") })
+            item {
+                EditorialReveal(delayMillis = 80) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = period == StatsPeriod.DAY, onClick = { period = StatsPeriod.DAY }, label = { Text("按日") })
+                        FilterChip(selected = period == StatsPeriod.MONTH, onClick = { period = StatsPeriod.MONTH }, label = { Text("按月") })
+                        FilterChip(selected = period == StatsPeriod.YEAR, onClick = { period = StatsPeriod.YEAR }, label = { Text("按年") })
+                    }
                 }
             }
-        }
 
-        item {
-            EditorialReveal(delayMillis = 140) {
-                Card {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(Color(0xFFFFF6E6), Color(0xFFF4E2C3))
-                                ),
-                                shape = RoundedCornerShape(14.dp)
-                            )
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+            item {
+                EditorialReveal(delayMillis = 140) {
+                    AnimatedContent(
+                        targetState = period,
+                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        label = "ledger-period"
                     ) {
-                        Text(
-                            text = "本期结余",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = InkSoft
-                        )
-                        Text(
-                            text = "¥${"%.2f".format(net)}",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = if (net >= 0) Color(0xFF2F6B3C) else AccentVermilion
-                        )
+                        Card {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(Color(0xFFFFF6E6), Color(0xFFF4E2C3))
+                                        ),
+                                        shape = RoundedCornerShape(14.dp)
+                                    )
+                                    .animateContentSize(
+                                        animationSpec = spring(
+                                            dampingRatio = 0.92f,
+                                            stiffness = 760f
+                                        )
+                                    )
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = "本期结余",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = InkSoft
+                                )
+                                Text(
+                                    text = "¥${"%.2f".format(net)}",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (net >= 0) Color(0xFF2F6B3C) else AccentVermilion
+                                )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            SummaryMetricCard(
-                                modifier = Modifier.weight(1f),
-                                label = "支出",
-                                value = "¥${"%.2f".format(expense)}",
-                                tone = Color(0xFF9A3B2A)
-                            )
-                            SummaryMetricCard(
-                                modifier = Modifier.weight(1f),
-                                label = "收入",
-                                value = "¥${"%.2f".format(income)}",
-                                tone = Color(0xFF2F6B3C)
-                            )
-                            SummaryMetricCard(
-                                modifier = Modifier.weight(1f),
-                                label = "结余",
-                                value = "¥${"%.2f".format(net)}",
-                                tone = if (net >= 0) Color(0xFF2F6B3C) else AccentVermilion
-                            )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    SummaryMetricCard(
+                                        modifier = Modifier.weight(1f),
+                                        label = "支出",
+                                        value = "¥${"%.2f".format(expense)}",
+                                        tone = Color(0xFF9A3B2A)
+                                    )
+                                    SummaryMetricCard(
+                                        modifier = Modifier.weight(1f),
+                                        label = "收入",
+                                        value = "¥${"%.2f".format(income)}",
+                                        tone = Color(0xFF2F6B3C)
+                                    )
+                                    SummaryMetricCard(
+                                        modifier = Modifier.weight(1f),
+                                        label = "结余",
+                                        value = "¥${"%.2f".format(net)}",
+                                        tone = if (net >= 0) Color(0xFF2F6B3C) else AccentVermilion
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
 
-        item {
-            Card {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("分类占比", style = MaterialTheme.typography.titleMedium)
-                    PieChart(categoryData = categoryData)
-                }
-            }
-        }
-
-        item {
-            Card {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("趋势统计", style = MaterialTheme.typography.titleMedium)
-                    BarChart(data = trendData)
-                }
-            }
-        }
-
-        item {
-            Text(
-                text = "账单明细",
-                style = MaterialTheme.typography.titleMedium,
-                color = InkDeep
-            )
-        }
-
-        if (filteredEntries.isEmpty()) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "当前周期暂无账单记录",
-                        modifier = Modifier.padding(14.dp),
-                        color = InkSoft
+                Card {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = 0.9f,
+                                    stiffness = 750f
+                                )
+                            )
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("分类占比", style = MaterialTheme.typography.titleMedium)
+                        PieChart(categoryData = categoryData)
+                    }
+                }
+            }
+
+            item {
+                Card {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = 0.9f,
+                                    stiffness = 750f
+                                )
+                            )
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("趋势统计", style = MaterialTheme.typography.titleMedium)
+                        BarChart(data = trendData)
+                    }
+                }
+            }
+
+            item {
+                Text(
+                    text = "账单明细",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = InkDeep
+                )
+            }
+
+            if (filteredEntries.isEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "当前周期暂无账单记录",
+                            modifier = Modifier.padding(14.dp),
+                            color = InkSoft
+                        )
+                    }
+                }
+            } else {
+                items(filteredEntries, key = { it.id }) { entry ->
+                    LedgerItem(
+                        entry = entry,
+                        onEdit = { editingEntry = it },
+                        onDelete = { viewModel.deleteLedger(it.id) }
                     )
                 }
             }
-        } else {
-            items(filteredEntries, key = { it.id }) { entry ->
-                LedgerItem(
-                    entry = entry,
-                    onEdit = { editingEntry = it },
-                    onDelete = { viewModel.deleteLedger(it.id) }
-                )
-            }
-        }
 
             item {
                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(bottom = 12.dp))
@@ -237,6 +267,12 @@ private fun LedgerItem(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = 0.92f,
+                        stiffness = 760f
+                    )
+                )
                 .padding(14.dp)
                 .border(1.dp, LineSoft, MaterialTheme.shapes.medium)
                 .padding(10.dp),
@@ -396,12 +432,20 @@ private fun buildTrendData(entries: List<LedgerEntry>, period: StatsPeriod): Lis
 
 @Composable
 private fun PieChart(categoryData: List<ChartItem>) {
-    val total = categoryData.sumOf { it.value }.coerceAtLeast(1.0)
+    val animatedValues = categoryData.map { item ->
+        animateFloatAsState(
+            targetValue = item.value.toFloat(),
+            animationSpec = spring(dampingRatio = 0.88f, stiffness = 720f),
+            label = "pie-${item.label}"
+        ).value.toDouble()
+    }
+    val total = animatedValues.sum().coerceAtLeast(1.0)
+
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Canvas(modifier = Modifier.size(160.dp)) {
             var startAngle = -90f
-            categoryData.forEach { item ->
-                val sweep = ((item.value / total) * 360f).toFloat()
+            categoryData.forEachIndexed { index, item ->
+                val sweep = ((animatedValues[index] / total) * 360f).toFloat()
                 drawArc(
                     color = item.color,
                     startAngle = startAngle,
@@ -431,15 +475,25 @@ private fun PieChart(categoryData: List<ChartItem>) {
 
 @Composable
 private fun BarChart(data: List<ChartItem>) {
-    val max = data.maxOfOrNull { it.value }?.coerceAtLeast(1.0) ?: 1.0
+    val animatedValues = data.map { item ->
+        animateFloatAsState(
+            targetValue = item.value.toFloat(),
+            animationSpec = spring(dampingRatio = 0.88f, stiffness = 700f),
+            label = "bar-${item.label}"
+        ).value.toDouble()
+    }
+    val max = animatedValues.maxOfOrNull { it }?.coerceAtLeast(1.0) ?: 1.0
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Canvas(modifier = Modifier
-            .fillMaxWidth()
-            .height(170.dp)) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(170.dp)
+        ) {
             val barWidth = size.width / (data.size * 1.8f)
             data.forEachIndexed { index, item ->
                 val x = index * (barWidth * 1.8f) + barWidth * 0.6f
-                val barHeight = ((item.value / max) * (size.height - 16)).toFloat()
+                val barHeight = ((animatedValues[index] / max) * (size.height - 16)).toFloat()
                 drawRect(
                     color = item.color,
                     topLeft = Offset(x, size.height - barHeight),

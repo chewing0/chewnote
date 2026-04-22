@@ -1,9 +1,16 @@
 package com.example.myapplication.ui.design
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +54,35 @@ fun EditorialBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
+    val drift = rememberInfiniteTransition(label = "editorial-bg")
+    val topLeftShift by drift.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 5200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "top-left-shift"
+    )
+    val rightShift by drift.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 6100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "right-shift"
+    )
+    val bottomShift by drift.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bottom-shift"
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -59,17 +95,17 @@ fun EditorialBackground(
                 drawCircle(
                     color = Color(0x33FFFFFF),
                     radius = size.minDimension * 0.38f,
-                    center = Offset(size.width * 0.12f, size.height * 0.08f)
+                    center = Offset(size.width * 0.12f * topLeftShift, size.height * 0.08f * topLeftShift)
                 )
                 drawCircle(
                     color = Color(0x22B36A4A),
                     radius = size.minDimension * 0.34f,
-                    center = Offset(size.width * 0.9f, size.height * 0.25f)
+                    center = Offset(size.width * 0.9f, size.height * 0.25f * rightShift)
                 )
                 drawCircle(
                     color = Color(0x1A1F2A44),
                     radius = size.minDimension * 0.42f,
-                    center = Offset(size.width * 0.78f, size.height * 0.9f)
+                    center = Offset(size.width * 0.78f * bottomShift, size.height * 0.9f)
                 )
             }
     ) {
@@ -161,10 +197,20 @@ fun EditorialReveal(
     AnimatedVisibility(
         modifier = modifier,
         visible = visible,
-        enter = fadeIn(animationSpec = tween(durationMillis = 420)) +
+        enter = fadeIn(animationSpec = tween(durationMillis = 460, easing = FastOutSlowInEasing)) +
             slideInVertically(
                 initialOffsetY = { fullHeight -> fullHeight / 7 },
-                animationSpec = tween(durationMillis = 420)
+                animationSpec = spring(
+                    dampingRatio = 0.9f,
+                    stiffness = 650f
+                )
+            ) +
+            scaleIn(
+                initialScale = 0.985f,
+                animationSpec = spring(
+                    dampingRatio = 0.95f,
+                    stiffness = 700f
+                )
             )
     ) {
         content()

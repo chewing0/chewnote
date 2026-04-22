@@ -18,6 +18,7 @@ private val Context.agentDataStore by preferencesDataStore(name = "agent_store")
 
 class LocalStore(private val context: Context) {
     private val gson = Gson()
+    private val secureSettingsStore = SecureSettingsStore(context)
 
     private val ledgerKey = stringPreferencesKey("ledger_entries")
     private val scheduleKey = stringPreferencesKey("schedule_items")
@@ -44,8 +45,19 @@ class LocalStore(private val context: Context) {
 
     fun observeModelSettings(): Flow<ModelSettings> {
         return context.agentDataStore.data.map { prefs ->
-            val json = prefs[modelSettingsKey] ?: return@map ModelSettings()
-            runCatching { gson.fromJson(json, ModelSettings::class.java) }.getOrDefault(ModelSettings())
+            val json = prefs[modelSettingsKey]
+            val stored = if (json.isNullOrBlank()) {
+                ModelSettings()
+            } else {
+                runCatching { gson.fromJson(json, ModelSettings::class.java) }.getOrDefault(ModelSettings())
+            }
+
+            val secureApiKey = secureSettingsStore.getApiKey()
+            if (secureApiKey.isBlank() && stored.apiKey.isNotBlank()) {
+                secureSettingsStore.saveApiKey(stored.apiKey)
+            }
+
+            stored.copy(apiKey = secureSettingsStore.getApiKey())
         }
     }
 
@@ -118,9 +130,47 @@ class LocalStore(private val context: Context) {
         }
     }
 
-    suspend fun saveModelSettings(settings: ModelSettings) {
+    suspend fun migrateLegacyWelcomeMessage(oldContent: String, newContent: String) {
         context.agentDataStore.edit { prefs ->
-            prefs[modelSettingsKey] = gson.toJson(settings)
+            val current = decodeList<ChatMessage>(prefs, chatMessagesKey)
+            if (current.isEmpty()) return@edit
+
+            val updated = current.mapIndexed { index, message ->
+                if (index == 0 && message.role == "assistant" && message.content == oldContent) {
+                    message.copy(content = newContent)
+                } else {
+                    message
+                }
+            }
+
+            if (updated != current) {
+                prefs[chatMessagesKey] = gson.toJson(updated)
+            }
+        }
+    }
+
+    suspend fun saveModelSettings(settings: ModelSettings) {
+        secureSettingsStore.saveApiKey(settings.apiKey)
+        context.agentDataStore.edit { prefs ->
+            prefs[modelSettingsKey] = gson.toJson(settings.copy(apiKey = ""))
+        }
+    }
+
+    suspend fun migrateLegacyModelSettings() {
+        context.agentDataStore.edit { prefs ->
+            val json = prefs[modelSettingsKey] ?: return@edit
+            val stored = runCatching { gson.fromJson(json, ModelSettings::class.java) }
+                .getOrDefault(ModelSettings())
+
+            if (stored.apiKey.isBlank()) {
+                return@edit
+            }
+
+            if (secureSettingsStore.getApiKey().isBlank()) {
+                secureSettingsStore.saveApiKey(stored.apiKey)
+            }
+
+            prefs[modelSettingsKey] = gson.toJson(stored.copy(apiKey = ""))
         }
     }
 

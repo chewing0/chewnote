@@ -1,21 +1,50 @@
+# IDE / editor
 *.iml
-.gradle
 /.idea/
-/local.properties
 /.idea/caches
 /.idea/libraries
 /.idea/modules.xml
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.vscode/
+
+# OS files
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+
+# Android / Gradle
+.gradle/
+.kotlin/
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+/local.properties
 local.properties
-.env
-*.env
-backend/.env
+
+# Python / backend
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.venv/
+/backend/.venv/
+/backend/__pycache__/
+
+# Environment files
+.env
+*.env
+/backend/.env
+
+# Docs local artifacts
+/docs/.obsidian/
+/docs/.vitepress/cache/
+/docs/.vitepress/dist/
+/docs/.cache/
+/docs/.temp/
+/docs/tmp/

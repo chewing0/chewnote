@@ -37,9 +37,9 @@ data class ModelConfigPayload(
 )
 
 data class ModelSettings(
-    val backendUrl: String = "http://10.0.2.2:8000/",
-    val modelBaseUrl: String = "https://api.moonshot.cn/v1",
-    val modelName: String = "moonshot-v1-8k",
+    val backendUrl: String = "",
+    val modelBaseUrl: String = "",
+    val modelName: String = "",
     val apiKey: String = ""
 )
 

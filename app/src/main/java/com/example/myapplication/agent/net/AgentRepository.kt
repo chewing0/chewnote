@@ -13,11 +13,7 @@ class AgentRepository {
         settings: ModelSettings,
     ): AgentResponse {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
-        val modelConfig = ModelConfigPayload(
-            baseUrl = settings.modelBaseUrl,
-            model = settings.modelName,
-            apiKey = settings.apiKey,
-        )
+        val modelConfig = settings.toModelConfigOrNull()
         return api.processText(
             AgentRequest(
                 text = text.trim(),
@@ -26,4 +22,18 @@ class AgentRepository {
             )
         )
     }
+}
+
+private fun ModelSettings.toModelConfigOrNull(): ModelConfigPayload? {
+    val baseUrl = modelBaseUrl.trim()
+    val model = modelName.trim()
+    val apiKey = apiKey.trim()
+    if (baseUrl.isBlank() && model.isBlank() && apiKey.isBlank()) {
+        return null
+    }
+    return ModelConfigPayload(
+        baseUrl = baseUrl,
+        model = model,
+        apiKey = apiKey,
+    )
 }

@@ -1,5 +1,11 @@
 package com.example.myapplication.ui.screen
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.background
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -29,9 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.agent.AppViewModel
 import com.example.myapplication.agent.model.ScheduleItem
@@ -124,97 +127,118 @@ fun ScheduleScreen(viewModel: AppViewModel) {
             }
 
             EditorialReveal(delayMillis = 140) {
-                if (tab == ScheduleTab.CALENDAR) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                item {
-                    QuickDateActions(
-                        selectedDate = selectedDate,
-                        onSelectDate = { date ->
-                            datePickerState.selectedDateMillis = date
-                                .atStartOfDay(ZoneId.systemDefault())
-                                .toInstant()
-                                .toEpochMilli()
-                        }
-                    )
-                }
-
-                item {
-                    Card {
-                        DatePicker(
-                            state = datePickerState,
-                            modifier = Modifier.fillMaxWidth(),
-                            showModeToggle = true
-                        )
-                    }
-                }
-
-                item {
-                    SelectedDateSummary(
-                        selectedDate = selectedDate,
-                        count = selectedSchedules.size
-                    )
-                }
-
-                if (selectedSchedules.isEmpty()) {
-                    item {
-                        ScheduleEmptyState(date = selectedDate)
-                    }
-                } else {
-                    items(selectedSchedules) { item ->
-                        ScheduleItemCard(
-                            item = item,
-                            onEdit = { editingItem = it },
-                            onDelete = { viewModel.deleteSchedule(it.id) }
-                        )
-                    }
-                }
-                    }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "全部安排 (${filteredAllSchedules.size})",
-                    style = MaterialTheme.typography.titleMedium
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = allFilter == AllScheduleFilter.UPCOMING,
-                        onClick = { allFilter = AllScheduleFilter.UPCOMING },
-                        label = { Text("未来优先") }
-                    )
-                    FilterChip(
-                        selected = allFilter == AllScheduleFilter.ALL,
-                        onClick = { allFilter = AllScheduleFilter.ALL },
-                        label = { Text("全部") }
-                    )
-                    FilterChip(
-                        selected = allFilter == AllScheduleFilter.HISTORY,
-                        onClick = { allFilter = AllScheduleFilter.HISTORY },
-                        label = { Text("历史") }
-                    )
-                }
-
-                if (groupedAllSchedules.isEmpty()) {
-                    ScheduleEmptyState(date = selectedDate, title = "当前筛选下暂无日程")
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        groupedAllSchedules.forEach { (day, itemsOfDay) ->
+                AnimatedContent(
+                    targetState = tab,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "schedule-tab"
+                ) { currentTab ->
+                    if (currentTab == ScheduleTab.CALENDAR) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             item {
-                                DateSectionHeader(day)
-                            }
-                            items(itemsOfDay) { item ->
-                                ScheduleAgendaCard(
-                                    item = item,
-                                    onEdit = { editingItem = it },
-                                    onDelete = { viewModel.deleteSchedule(it.id) }
+                                QuickDateActions(
+                                    selectedDate = selectedDate,
+                                    onSelectDate = { date ->
+                                        datePickerState.selectedDateMillis = date
+                                            .atStartOfDay(ZoneId.systemDefault())
+                                            .toInstant()
+                                            .toEpochMilli()
+                                    }
                                 )
                             }
+
+                            item {
+                                Card(
+                                    modifier = Modifier.animateContentSize(
+                                        animationSpec = spring(
+                                            dampingRatio = 0.9f,
+                                            stiffness = 750f
+                                        )
+                                    )
+                                ) {
+                                    DatePicker(
+                                        state = datePickerState,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        showModeToggle = true
+                                    )
+                                }
+                            }
+
+                            item {
+                                SelectedDateSummary(
+                                    selectedDate = selectedDate,
+                                    count = selectedSchedules.size
+                                )
+                            }
+
+                            if (selectedSchedules.isEmpty()) {
+                                item {
+                                    ScheduleEmptyState(date = selectedDate)
+                                }
+                            } else {
+                                items(selectedSchedules) { item ->
+                                    ScheduleItemCard(
+                                        item = item,
+                                        onEdit = { editingItem = it },
+                                        onDelete = { viewModel.deleteSchedule(it.id) }
+                                    )
+                                }
+                            }
                         }
-                    }
-                }
+                    } else {
+                        Column(
+                            modifier = Modifier.animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = 0.9f,
+                                    stiffness = 760f
+                                )
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "全部安排 (${filteredAllSchedules.size})",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = allFilter == AllScheduleFilter.UPCOMING,
+                                    onClick = { allFilter = AllScheduleFilter.UPCOMING },
+                                    label = { Text("未来优先") }
+                                )
+                                FilterChip(
+                                    selected = allFilter == AllScheduleFilter.ALL,
+                                    onClick = { allFilter = AllScheduleFilter.ALL },
+                                    label = { Text("全部") }
+                                )
+                                FilterChip(
+                                    selected = allFilter == AllScheduleFilter.HISTORY,
+                                    onClick = { allFilter = AllScheduleFilter.HISTORY },
+                                    label = { Text("历史") }
+                                )
+                            }
+
+                            if (groupedAllSchedules.isEmpty()) {
+                                ScheduleEmptyState(date = selectedDate, title = "当前筛选下暂无日程")
+                            } else {
+                                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    groupedAllSchedules.forEach { (day, itemsOfDay) ->
+                                        item {
+                                            DateSectionHeader(day)
+                                        }
+                                        items(itemsOfDay) { item ->
+                                            ScheduleAgendaCard(
+                                                item = item,
+                                                onEdit = { editingItem = it },
+                                                onDelete = { viewModel.deleteSchedule(it.id) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -281,7 +305,14 @@ private fun SelectedDateSummary(
     Surface(
         color = Color(0xFFF4E8D6),
         shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = 0.9f,
+                    stiffness = 760f
+                )
+            )
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -302,6 +333,12 @@ private fun ScheduleEmptyState(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = 0.92f,
+                        stiffness = 760f
+                    )
+                )
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -336,6 +373,12 @@ private fun ScheduleAgendaCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = 0.92f,
+                        stiffness = 760f
+                    )
+                )
                 .padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -383,6 +426,12 @@ private fun ScheduleItemCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = 0.92f,
+                        stiffness = 760f
+                    )
+                )
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {

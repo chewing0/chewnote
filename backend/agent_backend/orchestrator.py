@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .llm_client import LLMClient
 from .schemas import AgentAction, AgentResponse
 
@@ -31,4 +33,19 @@ class AgentOrchestrator:
                 if actions
                 else "好的，我在这儿。你可以继续聊，也可以让我记账或安排日程。"
             )
-        return AgentResponse(reply=reply, actions=actions)
+        return AgentResponse(reply=_plain_text_reply(reply), actions=actions)
+
+
+def _plain_text_reply(text: str) -> str:
+    cleaned = text.replace("\r\n", "\n")
+    cleaned = re.sub(r"```[\s\S]*?```", "", cleaned)
+    cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", cleaned)
+    cleaned = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"\1", cleaned)
+    cleaned = re.sub(r"(^|\n)\s{0,3}#{1,6}\s*", r"\1", cleaned)
+    cleaned = re.sub(r"(^|\n)\s*>\s?", r"\1", cleaned)
+    cleaned = re.sub(r"(^|\n)\s*[-*+]\s+", r"\1", cleaned)
+    cleaned = re.sub(r"(^|\n)\s*\d+\.\s+", r"\1", cleaned)
+    cleaned = re.sub(r"(\*\*|__|\*|_)", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()

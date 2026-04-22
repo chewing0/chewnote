@@ -1,5 +1,12 @@
 package com.example.myapplication.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -72,7 +79,14 @@ fun SettingsScreen(viewModel: AppViewModel) {
             EditorialReveal(delayMillis = 80) {
                 EditorialPanel(modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        modifier = Modifier.padding(14.dp),
+                        modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = 0.9f,
+                                    stiffness = 760f
+                                )
+                            )
+                            .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedTextField(
@@ -80,7 +94,10 @@ fun SettingsScreen(viewModel: AppViewModel) {
                             onValueChange = { backendUrl = it },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("后端 URL") },
-                            supportingText = { Text("模拟器请用 10.0.2.2:8000；真机请用电脑局域网 IP") }
+                            placeholder = { Text("默认: http://10.0.2.2:8000/") },
+                            supportingText = {
+                                Text("留空则使用默认联调地址；填写后使用你输入的地址")
+                            }
                         )
 
                         OutlinedTextField(
@@ -88,7 +105,10 @@ fun SettingsScreen(viewModel: AppViewModel) {
                             onValueChange = { modelBaseUrl = it },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("模型 Base URL") },
-                            supportingText = { Text("例如: https://api.moonshot.cn/v1") }
+                            placeholder = { Text("例如: https://api.moonshot.cn/v1") },
+                            supportingText = {
+                                Text("留空则沿用后端 .env 中的 OPENAI_BASE_URL")
+                            }
                         )
 
                         OutlinedTextField(
@@ -96,7 +116,10 @@ fun SettingsScreen(viewModel: AppViewModel) {
                             onValueChange = { modelName = it },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("基准模型") },
-                            supportingText = { Text("例如: moonshot-v1-8k") }
+                            placeholder = { Text("例如: moonshot-v1-8k") },
+                            supportingText = {
+                                Text("留空则沿用后端 .env 中的 OPENAI_MODEL")
+                            }
                         )
 
                         OutlinedTextField(
@@ -104,8 +127,11 @@ fun SettingsScreen(viewModel: AppViewModel) {
                             onValueChange = { apiKey = it },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("API Key") },
+                            placeholder = { Text("例如: sk-...") },
                             visualTransformation = PasswordVisualTransformation(),
-                            supportingText = { Text("仅保存在本机 DataStore") }
+                            supportingText = {
+                                Text("留空则沿用后端 .env 中的 OPENAI_API_KEY；填写后加密保存在本机并按请求透传")
+                            }
                         )
 
                         Button(
@@ -124,7 +150,11 @@ fun SettingsScreen(viewModel: AppViewModel) {
                             Text("保存设置")
                         }
 
-                        if (saveTip.isNotBlank()) {
+                        AnimatedVisibility(
+                            visible = saveTip.isNotBlank(),
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
                             Text(
                                 text = saveTip,
                                 style = MaterialTheme.typography.bodySmall,

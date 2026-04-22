@@ -1,17 +1,28 @@
 package com.example.myapplication.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
@@ -25,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -99,77 +111,107 @@ fun AgentApp() {
         modifier = Modifier.fillMaxSize(),
         containerColor = Color.Transparent,
         bottomBar = {
-            if (hideBottomBar) {
-                return@Scaffold
-            }
-
-            Surface(color = Color.Transparent) {
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 18.dp, vertical = 10.dp)
-                        .fillMaxWidth()
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(
-                                    Color(0xFFFFF8EC),
-                                    Color(0xFFF0E2CC)
-                                )
-                            ),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp)
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = LineSoft,
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                ) {
+            AnimatedVisibility(
+                visible = !hideBottomBar,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }) + scaleIn(initialScale = 0.96f),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }) + scaleOut(targetScale = 0.96f)
+            ) {
+                Surface(color = Color.Transparent) {
                     Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .padding(horizontal = 18.dp, vertical = 10.dp)
+                            .fillMaxWidth()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color(0xFFFFF8EC),
+                                        Color(0xFFF0E2CC)
+                                    )
+                                ),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = LineSoft,
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
-                        navItems.forEachIndexed { index, item ->
-                            val selected = currentRoute == item.route
-                            val isCenter = index == 1
-                            val navigate = { navigateTo(item.route) }
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            navItems.forEachIndexed { index, item ->
+                                val selected = currentRoute == item.route
+                                val isCenter = index == 1
+                                val navigate = { navigateTo(item.route) }
+                                val scale by animateFloatAsState(
+                                    targetValue = if (selected) 1f else 0.96f,
+                                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 700f),
+                                    label = "nav-scale-${item.route}"
+                                )
+                                val textColor by animateColorAsState(
+                                    targetValue = if (selected) InkDeep else InkSoft,
+                                    animationSpec = spring(stiffness = 700f),
+                                    label = "nav-text-${item.route}"
+                                )
 
-                            if (isCenter) {
-                                Surface(
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                        .clickable(onClick = navigate),
-                                    color = if (selected) AccentVermilion else Color(0xFFE4D5BD),
-                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-                                    tonalElevation = if (selected) 6.dp else 0.dp
-                                ) {
-                                    Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
-                                        item.icon(selected)
-                                    }
-                                }
-                            } else {
-                                Surface(
-                                    modifier = Modifier.clickable(onClick = navigate),
-                                    color = Color.Transparent
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                if (isCenter) {
+                                    val containerColor by animateColorAsState(
+                                        targetValue = if (selected) AccentVermilion else Color(0xFFE4D5BD),
+                                        animationSpec = spring(stiffness = 700f),
+                                        label = "nav-center-bg"
+                                    )
+                                    val elevation by animateDpAsState(
+                                        targetValue = if (selected) 8.dp else 0.dp,
+                                        animationSpec = spring(dampingRatio = 0.9f, stiffness = 800f),
+                                        label = "nav-center-elevation"
+                                    )
+                                    Surface(
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .graphicsLayer {
+                                                scaleX = scale
+                                                scaleY = scale
+                                            }
+                                            .clickable(onClick = navigate),
+                                        color = containerColor,
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                                        tonalElevation = elevation
                                     ) {
-                                        item.icon(selected)
-                                        Text(
-                                            text = item.label,
-                                            color = if (selected) InkDeep else InkSoft
-                                        )
+                                        Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+                                            item.icon(selected)
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        modifier = Modifier
+                                            .graphicsLayer {
+                                                scaleX = scale
+                                                scaleY = scale
+                                            }
+                                            .clickable(onClick = navigate),
+                                        color = Color.Transparent
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                        ) {
+                                            item.icon(selected)
+                                            Text(
+                                                text = item.label,
+                                                color = textColor
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-
                 }
             }
         }
