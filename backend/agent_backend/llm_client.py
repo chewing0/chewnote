@@ -36,19 +36,19 @@ class LLMClient:
         tools = [
             StructuredTool.from_function(
                 name="add_schedule",
-                description="新增一条日程安排",
+                description="新增一条日程安排。",
                 func=self._tool_add_schedule,
                 args_schema=ScheduleToolInput,
             ),
             StructuredTool.from_function(
                 name="add_schedule_series",
-                description="批量新增连续多天的日程，例如未来 7 天每天 15:00",
+                description="批量新增连续多天的日程，例如未来 7 天每天 15:00 的安排。",
                 func=self._tool_add_schedule_series,
                 args_schema=ScheduleSeriesToolInput,
             ),
             StructuredTool.from_function(
                 name="add_ledger",
-                description="新增一条记账记录",
+                description="新增一条记账记录。",
                 func=self._tool_add_ledger,
                 args_schema=LedgerToolInput,
             ),
@@ -61,11 +61,11 @@ class LLMClient:
                     "你是中文个人效率助手。"
                     "你的名称是 MyLife Agent。"
                     "你的职责是根据用户输入，调用可用工具完成记录。"
-                    "如果有单条日程信息，调用 add_schedule；"
-                    "如果是多天重复日程（如接下来一周每天/连续七天每天），必须调用 add_schedule_series；"
-                    "如果有记账信息，必须调用 add_ledger；"
-                    "两者都有就都调用。"
-                    "事项标题必须忠实于用户原文，不要凭空改写成其他活动名。"
+                    "如果有单条日程信息，调用 add_schedule。"
+                    "如果是多天重复日程，例如接下来一周每天或连续七天每天，必须调用 add_schedule_series。"
+                    "如果有记账信息，必须调用 add_ledger。"
+                    "如果日程和记账都有，就都调用。"
+                    "事项标题必须忠实于用户原文，不要凭空改写活动名称。"
                     "日期必须是 YYYY-MM-DD，时间必须是 HH:mm。"
                     "完成工具调用后再给出简短中文总结。"
                     "回复必须使用纯文本，不要使用 Markdown。"
@@ -122,13 +122,13 @@ class LLMClient:
             start_date = date.today()
 
         total_days = max(1, min(days, 31))
-        for i in range(total_days):
+        for index in range(total_days):
             self._runtime_actions.append(
                 AgentAction(
                     type="add_schedule",
                     payload={
                         "title": title,
-                        "date": (start_date + timedelta(days=i)).isoformat(),
+                        "date": (start_date + timedelta(days=index)).isoformat(),
                         "time": time,
                         "note": note,
                     },
@@ -168,7 +168,7 @@ class LLMClient:
         api_key, base_url, model = self._resolve_runtime_config(model_config)
         if not api_key:
             return {
-                "reply": "当前未配置模型 API Key，暂时无法执行 Agent 工具调用。",
+                "reply": "当前未配置模型 API Key，暂时无法执行 Agent 调用。",
                 "actions": [],
             }
 
@@ -203,11 +203,25 @@ class LLMClient:
             }
         except asyncio.TimeoutError:
             return {
-                "reply": "请求超时了，请稍后重试或把需求拆短一点再发给我。",
+                "reply": "模型响应超时了，请稍后重试，或换一个更稳定的模型配置。",
                 "actions": [],
             }
-        except Exception:
+        except Exception as exc:
+            error_text = str(exc)
+            lowered = error_text.lower()
+
+            if "api key" in lowered or "authentication" in lowered or "401" in lowered:
+                reply = "模型 API Key 无效或没有权限，请检查设置页里的 Key 配置。"
+            elif "403" in lowered or "permission" in lowered or "access_terminated_error" in lowered:
+                reply = "当前模型没有访问权限，请更换模型或使用有权限的 Key。"
+            elif "404" in lowered or "model does not exist" in lowered:
+                reply = "模型名称或 Base URL 不正确，请检查后重试。"
+            elif "connection" in lowered or "dns" in lowered or "name or service not known" in lowered:
+                reply = "模型服务当前不可达，请检查 Base URL 或网络连接。"
+            else:
+                reply = "Agent 服务暂时不可用，请稍后重试。"
+
             return {
-                "reply": "Agent 服务暂时不可用，请稍后重试。",
+                "reply": reply,
                 "actions": [],
             }

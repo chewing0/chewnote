@@ -116,7 +116,8 @@ fun EditorialBackground(
 @Composable
 fun EditorialTitle(
     title: String,
-    subtitle: String,
+    subtitle: String = "",
+    showSubtitle: Boolean = true,
     modifier: Modifier = Modifier,
     trailing: @Composable (() -> Unit)? = null
 ) {
@@ -132,11 +133,13 @@ fun EditorialTitle(
                 fontFamily = FontFamily.Serif,
                 color = InkDeep
             )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = InkSoft
-            )
+            if (subtitle.isNotBlank() && showSubtitle) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkSoft
+                )
+            }
         }
         trailing?.invoke()
     }

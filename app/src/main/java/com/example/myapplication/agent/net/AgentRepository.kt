@@ -3,6 +3,8 @@ package com.example.myapplication.agent.net
 import com.example.myapplication.agent.model.AgentRequest
 import com.example.myapplication.agent.model.AgentResponse
 import com.example.myapplication.agent.model.ChatMessagePayload
+import com.example.myapplication.agent.model.ConnectionTestResult
+import com.example.myapplication.agent.model.ConnectionTestStatus
 import com.example.myapplication.agent.model.ModelConfigPayload
 import com.example.myapplication.agent.model.ModelSettings
 
@@ -20,6 +22,85 @@ class AgentRepository {
                 history = history,
                 modelConfig = modelConfig,
             )
+        )
+    }
+
+    suspend fun testConnection(settings: ModelSettings): ConnectionTestResult {
+        val api = NetworkModule.createAgentApi(settings.backendUrl)
+        val modelConfig = settings.toModelConfigOrNull()
+
+        val health = runCatching { api.health() }.getOrElse {
+            return ConnectionTestResult(
+                status = ConnectionTestStatus.FAILURE,
+                title = "后端不可达",
+                detail = "未能连接到 ${NetworkModule.resolveBackendUrl(settings.backendUrl)}，请确认服务是否启动。",
+            )
+        }
+
+        if (!health.status.equals("ok", ignoreCase = true)) {
+            return ConnectionTestResult(
+                status = ConnectionTestStatus.FAILURE,
+                title = "后端状态异常",
+                detail = "健康检查没有返回可用状态，请先确认后端服务本身正常。",
+            )
+        }
+
+        val probe = runCatching {
+            api.processText(
+                AgentRequest(
+                    text = "连接测试。请只回复“测试成功”，不要调用任何工具。",
+                    history = emptyList(),
+                    modelConfig = modelConfig,
+                )
+            )
+        }.getOrElse { throwable ->
+            return ConnectionTestResult(
+                status = ConnectionTestStatus.FAILURE,
+                title = "模型探测失败",
+                detail = throwable.message?.ifBlank {
+                    "后端可以访问，但模型调用没有成功，请检查当前模型配置。"
+                } ?: "后端可以访问，但模型调用没有成功，请检查当前模型配置。",
+            )
+        }
+
+        return interpretProbeReply(probe.reply)
+    }
+}
+
+private fun interpretProbeReply(reply: String): ConnectionTestResult {
+    val text = reply.trim()
+    val lower = text.lowercase()
+    return when {
+        text.isBlank() -> ConnectionTestResult(
+            status = ConnectionTestStatus.SUCCESS,
+            title = "连接正常",
+            detail = "后端和模型都已经连通，可以直接开始使用。",
+        )
+
+        lower.contains("api key")
+            || text.contains("未配置模型")
+            || text.contains("未配置") -> ConnectionTestResult(
+            status = ConnectionTestStatus.FAILURE,
+            title = "模型 Key 未配置",
+            detail = text,
+        )
+
+        text.contains("模型")
+            || text.contains("Base URL")
+            || text.contains("超时")
+            || text.contains("不可用")
+            || text.contains("无权限")
+            || text.contains("不可达")
+            || text.contains("服务暂时不可用") -> ConnectionTestResult(
+            status = ConnectionTestStatus.FAILURE,
+            title = "模型不可用",
+            detail = text,
+        )
+
+        else -> ConnectionTestResult(
+            status = ConnectionTestStatus.SUCCESS,
+            title = "连接正常",
+            detail = text,
         )
     }
 }

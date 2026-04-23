@@ -7,6 +7,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -16,17 +17,21 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -34,6 +39,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -43,10 +49,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,14 +68,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.agent.AppViewModel
+import com.example.myapplication.agent.model.ActionReceipt
 import com.example.myapplication.agent.model.ChatMessage
+import com.example.myapplication.agent.model.ChatMessageKind
+import com.example.myapplication.agent.model.ConnectionTestResult
+import com.example.myapplication.agent.model.ConnectionTestStatus
+import com.example.myapplication.agent.model.LedgerEntry
+import com.example.myapplication.agent.model.LedgerPeriod
+import com.example.myapplication.agent.model.ReceiptActionTarget
+import com.example.myapplication.agent.model.ScheduleItem
 import com.example.myapplication.ui.design.EditorialBackground
 import com.example.myapplication.ui.design.EditorialPanel
 import com.example.myapplication.ui.design.EditorialReveal
@@ -81,20 +100,63 @@ import com.example.myapplication.ui.theme.InkSoft
 import com.example.myapplication.ui.theme.LineSoft
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.math.absoluteValue
 
 @Composable
 fun AgentHomeScreen(
     viewModel: AppViewModel,
     onOpenSettings: () -> Unit,
+    onOpenSchedule: (targetDate: String?, batchId: String?) -> Unit,
+    onOpenLedger: (period: LedgerPeriod, batchId: String?) -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val agentStatus by viewModel.agentStatus.collectAsState()
     val messages by viewModel.chatMessages.collectAsState()
+    val schedules by viewModel.scheduleItems.collectAsState()
+    val ledgers by viewModel.ledgerEntries.collectAsState()
     val listState = rememberLazyListState()
+    val density = LocalDensity.current
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     var selectedMessage by remember { mutableStateOf<Pair<Int, ChatMessage>?>(null) }
+    var dockHeightPx by remember { mutableIntStateOf(0) }
+
+    val today = LocalDate.now()
+    val todaySchedules = remember(schedules, today) {
+        schedules
+            .filter { it.date == today.toString() }
+            .sortedWith(compareBy<ScheduleItem> { it.time }.thenBy { it.createdAt })
+    }
+    val nextSchedule = remember(todaySchedules) {
+        val now = LocalTime.now()
+        todaySchedules.firstOrNull { parseTimeSafe(it.time) >= now } ?: todaySchedules.firstOrNull()
+    }
+    val monthSummary = remember(ledgers) { buildMonthSummary(ledgers) }
+
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val navBottomPx = WindowInsets.navigationBars.getBottom(density)
+    val dockLiftTarget = with(density) {
+        if (imeBottomPx > navBottomPx) {
+            (imeBottomPx - navBottomPx).coerceAtLeast(0).toDp() + 4.dp
+        } else {
+            0.dp
+        }
+    }
+    val dockLift by animateDpAsState(
+        targetValue = dockLiftTarget,
+        animationSpec = spring(dampingRatio = 0.9f, stiffness = 700f),
+        label = "chat-dock-lift",
+    )
+    val safeDockLift = if (dockLift < 0.dp) 0.dp else dockLift
+    val listBottomPadding = with(density) { dockHeightPx.toDp() } + safeDockLift + 8.dp
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshAgentStatus()
+    }
 
     LaunchedEffect(messages.size, uiState.loading) {
         val totalItems = messages.size + if (uiState.loading) 1 else 0
@@ -104,47 +166,139 @@ fun AgentHomeScreen(
     }
 
     EditorialBackground {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            EditorialReveal(delayMillis = 0) {
-                EditorialPanel(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                ) {
-                    Row(
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                EditorialReveal(delayMillis = 0) {
+                    EditorialPanel(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(top = 12.dp),
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = "MyLife",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = InkDeep
-                            )
-                            TonePill(text = "在线", tone = AccentMoss)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "MyLife",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = InkDeep,
+                                )
+                                TonePill(
+                                    text = agentStatus.bannerLabel(),
+                                    tone = agentStatus.bannerTone(),
+                                )
+                            }
+
+                            Surface(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clickable(onClick = onOpenSettings),
+                                color = Color(0xFFE7D8C1),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = "设置",
+                                        tint = InkDeep,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                EditorialReveal(delayMillis = 60) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        SummaryBandCard(
+                            modifier = Modifier.weight(1f),
+                            title = "今日日程",
+                            value = "${todaySchedules.size} 项",
+                            detail = nextSchedule?.let { "下一项 ${it.time} ${it.title}" } ?: "今天还没有安排",
+                        )
+                        SummaryBandCard(
+                            modifier = Modifier.weight(1f),
+                            title = "本月账单",
+                            value = "¥${"%.0f".format(monthSummary.net)}",
+                            detail = "收入 ¥${"%.0f".format(monthSummary.income)} / 支出 ¥${"%.0f".format(monthSummary.expense)}",
+                        )
+                    }
+                }
+
+                EditorialReveal(
+                    modifier = Modifier.weight(1f),
+                    delayMillis = 100,
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth(),
+                        state = listState,
+                        contentPadding = PaddingValues(bottom = listBottomPadding),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(messages, key = { index, message -> "${message.createdAt}-${message.kind}-$index" }) { index, message ->
+                            if (shouldShowDateHeader(messages, index)) {
+                                DateHeader(dateLabel(message.createdAt))
+                            }
+                            if (message.kind == ChatMessageKind.ACTION_RECEIPT) {
+                                message.actionReceipt?.let { receipt ->
+                                    ActionReceiptCard(
+                                        receipt = receipt,
+                                        onOpenPrimary = {
+                                            handleReceiptAction(
+                                                receipt = receipt,
+                                                target = receipt.primaryAction,
+                                                onOpenSchedule = onOpenSchedule,
+                                                onOpenLedger = onOpenLedger,
+                                            )
+                                        },
+                                        onOpenSecondary = {
+                                            receipt.secondaryAction?.let { secondary ->
+                                                handleReceiptAction(
+                                                    receipt = receipt,
+                                                    target = secondary,
+                                                    onOpenSchedule = onOpenSchedule,
+                                                    onOpenLedger = onOpenLedger,
+                                                )
+                                            }
+                                        },
+                                        onUndo = { viewModel.undoActionBatch(receipt.batchId) },
+                                    )
+                                }
+                            } else {
+                                ChatBubble(
+                                    message = message,
+                                    onLongPress = { selectedMessage = index to message },
+                                )
+                            }
                         }
 
-                        Surface(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clickable(onClick = onOpenSettings),
-                            color = Color(0xFFE7D8C1),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "设置",
-                                    tint = InkDeep
-                                )
+                        item {
+                            AnimatedVisibility(
+                                visible = uiState.loading,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Start,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    ThinkingIndicator()
+                                }
                             }
                         }
                     }
@@ -152,100 +306,20 @@ fun AgentHomeScreen(
             }
 
             EditorialReveal(
-                modifier = Modifier.weight(1f),
-                delayMillis = 80
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = safeDockLift)
+                    .onSizeChanged { dockHeightPx = it.height },
+                delayMillis = 160,
             ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    state = listState,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(messages) { index, message ->
-                        if (shouldShowDateHeader(messages, index)) {
-                            DateHeader(dateLabel(message.createdAt))
-                        }
-                        ChatBubble(
-                            message = message,
-                            onLongPress = { selectedMessage = index to message }
-                        )
-                    }
-
-                    item {
-                        AnimatedVisibility(
-                            visible = uiState.loading,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Start,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ThinkingIndicator()
-                                Text("正在思考中...", modifier = Modifier.padding(start = 8.dp))
-                            }
-                        }
-                    }
-                }
-            }
-
-            EditorialReveal(delayMillis = 160) {
-                EditorialPanel(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 4.dp)
-                        .imePadding()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.Bottom
-                        ) {
-                            OutlinedTextField(
-                                value = uiState.input,
-                                onValueChange = viewModel::updateInput,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 56.dp, max = 160.dp)
-                                    .animateContentSize(
-                                        animationSpec = spring(
-                                            dampingRatio = 0.9f,
-                                            stiffness = 700f
-                                        )
-                                    ),
-                                minLines = 1,
-                                maxLines = 6,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(onSend = { viewModel.submitInput() })
-                            )
-
-                            FilledIconButton(
-                                modifier = Modifier.padding(bottom = 4.dp),
-                                onClick = viewModel::submitInput,
-                                enabled = !uiState.loading && uiState.input.isNotBlank(),
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = AccentVermilion,
-                                    contentColor = CanvasIvory
-                                )
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
-                            }
-                        }
-
-                        AnimatedVisibility(
-                            visible = !uiState.error.isNullOrBlank(),
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            Text(
-                                text = uiState.error ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
+                AgentInputDock(
+                    input = uiState.input,
+                    error = uiState.error,
+                    loading = uiState.loading,
+                    onValueChange = viewModel::updateInput,
+                    onSend = viewModel::submitInput,
+                )
             }
         }
     }
@@ -275,8 +349,214 @@ fun AgentHomeScreen(
                         Text("取消")
                     }
                 }
-            }
+            },
         )
+    }
+}
+
+@Composable
+private fun AgentInputDock(
+    input: String,
+    error: String?,
+    loading: Boolean,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 64.dp)
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = 0.9f,
+                    stiffness = 700f,
+                )
+            ),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        EditorialPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CompactChatInput(
+                        value = input,
+                        onValueChange = onValueChange,
+                        onSend = onSend,
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    FilledIconButton(
+                        modifier = Modifier.size(38.dp),
+                        onClick = onSend,
+                        enabled = !loading && input.isNotBlank(),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = AccentVermilion,
+                            contentColor = CanvasIvory,
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "发送",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = !error.isNullOrBlank(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    Text(
+                        text = error ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactChatInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.defaultMinSize(minHeight = 46.dp),
+        color = Color(0xFFFFFBF4),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, InkDeep),
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = InkDeep),
+            maxLines = 3,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { onSend() }),
+            cursorBrush = SolidColor(InkDeep),
+            decorationBox = { innerTextField ->
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    innerTextField()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun SummaryBandCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    value: String,
+    detail: String,
+) {
+    Surface(
+        modifier = modifier,
+        color = Color(0xFFFFF7EA),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 1.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(text = title, color = InkSoft, style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = value,
+                color = InkDeep,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(text = detail, color = InkSoft, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun ActionReceiptCard(
+    receipt: ActionReceipt,
+    onOpenPrimary: () -> Unit,
+    onOpenSecondary: () -> Unit,
+    onUndo: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF9F0E4)),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = SolidColor(Color(0xFFE0C39A)),
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TonePill(
+                    text = if (receipt.undone) "已撤销" else "本次新增",
+                    tone = if (receipt.undone) InkSoft else AccentVermilion,
+                )
+                Text(
+                    text = when (receipt.kind.name) {
+                        "SCHEDULE" -> "日程回执"
+                        "LEDGER" -> "账单回执"
+                        else -> "同步回执"
+                    },
+                    color = InkSoft,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            Text(
+                text = receipt.summary,
+                color = InkDeep,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(
+                    onClick = onOpenPrimary,
+                    enabled = !receipt.undone,
+                ) {
+                    Text(receipt.primaryAction.toActionLabel())
+                }
+                receipt.secondaryAction?.let {
+                    FilledTonalButton(
+                        onClick = onOpenSecondary,
+                        enabled = !receipt.undone,
+                    ) {
+                        Text(it.toActionLabel())
+                    }
+                }
+                TextButton(
+                    onClick = onUndo,
+                    enabled = !receipt.undone,
+                ) {
+                    Text("撤销本次")
+                }
+            }
+        }
     }
 }
 
@@ -285,46 +565,44 @@ private fun ChatBubble(message: ChatMessage, onLongPress: () -> Unit) {
     val isUser = message.role == "user"
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         Card(
             modifier = Modifier
-                .widthIn(max = 300.dp)
+                .widthIn(max = 260.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .animateContentSize(
                     animationSpec = spring(
                         dampingRatio = 0.92f,
-                        stiffness = 760f
+                        stiffness = 760f,
                     )
                 ),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isUser) InkDeep else Color(0xFFFFF9EE)
+                containerColor = if (isUser) InkDeep else Color(0xFFFFF9EE),
             ),
             border = CardDefaults.outlinedCardBorder().copy(
-                brush = androidx.compose.ui.graphics.SolidColor(
-                    if (isUser) InkDeep else LineSoft
-                )
+                brush = SolidColor(if (isUser) InkDeep else LineSoft),
             ),
-            elevation = CardDefaults.cardElevation(defaultElevation = if (isUser) 3.dp else 1.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = if (isUser) 3.dp else 1.dp),
         ) {
             Column(
                 modifier = Modifier
                     .pointerInput(message.content) {
                         detectTapGestures(onLongPress = { onLongPress() })
                     }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(horizontal = 9.dp, vertical = 7.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     text = message.content,
                     color = if (isUser) CanvasIvory else InkDeep,
-                    textAlign = TextAlign.Start
+                    textAlign = TextAlign.Start,
                 )
                 Text(
                     text = timeLabel(message.createdAt),
                     color = if (isUser) Color(0xFFE7DCC9) else InkSoft,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }
@@ -335,17 +613,17 @@ private fun ChatBubble(message: ChatMessage, onLongPress: () -> Unit) {
 private fun DateHeader(text: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center
+        horizontalArrangement = Arrangement.Center,
     ) {
         Surface(
             shape = RoundedCornerShape(10.dp),
-            color = Color(0xFFF2E2C8)
+            color = Color(0xFFF2E2C8),
         ) {
             Text(
                 text = text,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                 color = InkSoft,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
             )
         }
     }
@@ -391,37 +669,40 @@ private fun ThinkingIndicator() {
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             tween(durationMillis = 520, easing = FastOutSlowInEasing),
-            RepeatMode.Reverse
+            RepeatMode.Reverse,
         ),
-        label = "dot1"
+        label = "dot1",
     )
     val scale2 by transition.animateFloat(
         initialValue = 0.5f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             tween(durationMillis = 520, delayMillis = 120, easing = FastOutSlowInEasing),
-            RepeatMode.Reverse
+            RepeatMode.Reverse,
         ),
-        label = "dot2"
+        label = "dot2",
     )
     val scale3 by transition.animateFloat(
         initialValue = 0.5f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             tween(durationMillis = 520, delayMillis = 240, easing = FastOutSlowInEasing),
-            RepeatMode.Reverse
+            RepeatMode.Reverse,
         ),
-        label = "dot3"
+        label = "dot3",
     )
 
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Dot(scale1)
         Dot(scale2)
         Dot(scale3)
         Text(
-            text = "处理中",
+            text = "处理中...",
             color = InkSoft,
-            style = MaterialTheme.typography.bodySmall
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
@@ -435,6 +716,82 @@ private fun Dot(scale: Float) {
                 scaleX = scale
                 scaleY = scale
             }
-            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50)),
     )
+}
+
+private data class MonthLedgerSummary(
+    val income: Double,
+    val expense: Double,
+    val net: Double,
+)
+
+private fun buildMonthSummary(entries: List<LedgerEntry>): MonthLedgerSummary {
+    val currentMonth = YearMonth.now()
+    val monthEntries = entries.filter {
+        runCatching { YearMonth.from(LocalDate.parse(it.date)) }.getOrNull() == currentMonth
+    }
+    val income = monthEntries.filter { it.entryType == "income" }.sumOf { it.amount.absoluteValue }
+    val expense = monthEntries.filter { it.entryType == "expense" }.sumOf { it.amount.absoluteValue }
+    return MonthLedgerSummary(
+        income = income,
+        expense = expense,
+        net = income - expense,
+    )
+}
+
+private fun handleReceiptAction(
+    receipt: ActionReceipt,
+    target: ReceiptActionTarget,
+    onOpenSchedule: (String?, String?) -> Unit,
+    onOpenLedger: (LedgerPeriod, String?) -> Unit,
+) {
+    when (target) {
+        ReceiptActionTarget.SCHEDULE -> {
+            val date = if (receipt.primaryAction == ReceiptActionTarget.SCHEDULE) {
+                receipt.targetDate
+            } else {
+                receipt.secondaryTargetDate
+            }
+            onOpenSchedule(date, receipt.batchId)
+        }
+
+        ReceiptActionTarget.LEDGER -> {
+            val period = if (receipt.primaryAction == ReceiptActionTarget.LEDGER) {
+                receipt.period ?: LedgerPeriod.MONTH
+            } else {
+                receipt.secondaryPeriod ?: LedgerPeriod.MONTH
+            }
+            onOpenLedger(period, receipt.batchId)
+        }
+    }
+}
+
+private fun ReceiptActionTarget.toActionLabel(): String {
+    return when (this) {
+        ReceiptActionTarget.SCHEDULE -> "查看日程"
+        ReceiptActionTarget.LEDGER -> "查看账单"
+    }
+}
+
+private fun ConnectionTestResult.bannerLabel(): String {
+    return when (status) {
+        ConnectionTestStatus.TESTING -> "检测中"
+        ConnectionTestStatus.SUCCESS -> "在线"
+        ConnectionTestStatus.FAILURE -> "配置异常"
+        ConnectionTestStatus.IDLE -> "待检测"
+    }
+}
+
+private fun ConnectionTestResult.bannerTone(): Color {
+    return when (status) {
+        ConnectionTestStatus.SUCCESS -> AccentMoss
+        ConnectionTestStatus.FAILURE -> AccentVermilion
+        ConnectionTestStatus.TESTING,
+        ConnectionTestStatus.IDLE -> InkSoft
+    }
+}
+
+private fun parseTimeSafe(time: String): LocalTime {
+    return runCatching { LocalTime.parse(time) }.getOrElse { LocalTime.MAX }
 }

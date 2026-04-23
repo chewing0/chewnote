@@ -46,6 +46,8 @@ object NetworkModule {
         return "$emulatorReachable/"
     }
 
+    fun resolveBackendUrl(url: String): String = sanitizeBaseUrl(url)
+
     private fun createRetrofit(baseUrl: String): Retrofit {
         return Retrofit.Builder()
             .baseUrl(sanitizeBaseUrl(baseUrl))
