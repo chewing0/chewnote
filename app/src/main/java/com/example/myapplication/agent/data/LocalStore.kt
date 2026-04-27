@@ -39,9 +39,11 @@ class LocalStore(private val context: Context) {
     private val legacyScheduleKey = stringPreferencesKey("schedule_items")
     private val chatMessagesKey = stringPreferencesKey("chat_messages")
     private val contextSnapshotKey = stringPreferencesKey("context_snapshot")
+    private val sessionIdKey = stringPreferencesKey("session_id")
     private val modelSettingsKey = stringPreferencesKey("model_settings")
     private val roomMigrationKey = booleanPreferencesKey("structured_room_migration_v1")
     private val ledgerCategoryMigrationKey = booleanPreferencesKey("ledger_category_migration_v1")
+    private val backendStorageMigrationKey = booleanPreferencesKey("backend_storage_migration_v1")
 
     fun observeLedgerEntries(): Flow<List<LedgerEntry>> {
         return ledgerDao.observeAll()
@@ -110,6 +112,50 @@ class LocalStore(private val context: Context) {
             ledgerDao.deleteByActionBatchId(batchId)
             scheduleDao.deleteByActionBatchId(batchId)
         }
+    }
+
+    suspend fun replaceStructuredCache(
+        schedules: List<ScheduleItem>,
+        ledgers: List<LedgerEntry>,
+    ) {
+        database.withTransaction {
+            scheduleDao.deleteAll()
+            ledgerDao.deleteAll()
+            if (schedules.isNotEmpty()) {
+                scheduleDao.upsertAll(schedules.map(::normalizeScheduleItem))
+            }
+            if (ledgers.isNotEmpty()) {
+                ledgerDao.upsertAll(ledgers.map(::normalizeLedgerEntry))
+            }
+        }
+    }
+
+    suspend fun migrateToBackendStorageCache() {
+        val prefs = context.agentDataStore.data.first()
+        if (prefs[backendStorageMigrationKey] == true) {
+            return
+        }
+
+        database.withTransaction {
+            ledgerDao.deleteAll()
+            scheduleDao.deleteAll()
+        }
+
+        context.agentDataStore.edit { mutablePrefs ->
+            mutablePrefs[backendStorageMigrationKey] = true
+        }
+    }
+
+    suspend fun getOrCreateSessionId(): String {
+        val current = context.agentDataStore.data.first()[sessionIdKey]
+        if (!current.isNullOrBlank()) {
+            return current
+        }
+        val created = UUID.randomUUID().toString()
+        context.agentDataStore.edit { prefs ->
+            prefs[sessionIdKey] = created
+        }
+        return created
     }
 
     suspend fun appendChatMessage(message: ChatMessage) {

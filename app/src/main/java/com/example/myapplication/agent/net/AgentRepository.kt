@@ -5,12 +5,16 @@ import com.example.myapplication.agent.model.AgentResponse
 import com.example.myapplication.agent.model.ChatMessagePayload
 import com.example.myapplication.agent.model.ConnectionTestResult
 import com.example.myapplication.agent.model.ConnectionTestStatus
+import com.example.myapplication.agent.model.LedgerEntry
 import com.example.myapplication.agent.model.ModelConfigPayload
 import com.example.myapplication.agent.model.ModelSettings
+import com.example.myapplication.agent.model.ScheduleItem
+import com.example.myapplication.agent.model.SyncResponse
 
 class AgentRepository {
     suspend fun processNaturalLanguage(
         text: String,
+        sessionId: String,
         history: List<ChatMessagePayload>,
         contextSummary: String,
         summaryHistory: List<ChatMessagePayload>,
@@ -21,12 +25,38 @@ class AgentRepository {
         return api.processText(
             AgentRequest(
                 text = text.trim(),
+                sessionId = sessionId,
                 history = history,
                 contextSummary = contextSummary,
                 summaryHistory = summaryHistory,
                 modelConfig = modelConfig,
             )
         )
+    }
+
+    suspend fun syncData(settings: ModelSettings): SyncResponse {
+        val api = NetworkModule.createAgentApi(settings.backendUrl)
+        return api.sync()
+    }
+
+    suspend fun updateLedger(entry: LedgerEntry, settings: ModelSettings): LedgerEntry {
+        val api = NetworkModule.createAgentApi(settings.backendUrl)
+        return api.updateLedger(entry.id, entry)
+    }
+
+    suspend fun deleteLedger(entryId: String, settings: ModelSettings) {
+        val api = NetworkModule.createAgentApi(settings.backendUrl)
+        api.deleteLedger(entryId)
+    }
+
+    suspend fun updateSchedule(item: ScheduleItem, settings: ModelSettings): ScheduleItem {
+        val api = NetworkModule.createAgentApi(settings.backendUrl)
+        return api.updateSchedule(item.id, item)
+    }
+
+    suspend fun deleteSchedule(itemId: String, settings: ModelSettings) {
+        val api = NetworkModule.createAgentApi(settings.backendUrl)
+        api.deleteSchedule(itemId)
     }
 
     suspend fun testConnection(settings: ModelSettings): ConnectionTestResult {
@@ -53,6 +83,7 @@ class AgentRepository {
             api.processText(
                 AgentRequest(
                     text = "连接测试。请只回复“测试成功”，不要调用任何工具。",
+                    sessionId = "connection-test",
                     history = emptyList(),
                     modelConfig = modelConfig,
                 )

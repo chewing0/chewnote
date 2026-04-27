@@ -30,6 +30,9 @@ interface LedgerDao {
 
     @Query("DELETE FROM ledger_entries WHERE actionBatchId = :batchId")
     suspend fun deleteByActionBatchId(batchId: String)
+
+    @Query("DELETE FROM ledger_entries")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -48,6 +51,9 @@ interface ScheduleDao {
 
     @Query("DELETE FROM schedule_items WHERE actionBatchId = :batchId")
     suspend fun deleteByActionBatchId(batchId: String)
+
+    @Query("DELETE FROM schedule_items")
+    suspend fun deleteAll()
 }
 
 @Database(

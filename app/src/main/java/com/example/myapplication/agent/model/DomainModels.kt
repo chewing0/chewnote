@@ -33,6 +33,8 @@ data class ScheduleItem(
 
 data class AgentRequest(
     val text: String,
+    @SerializedName("session_id")
+    val sessionId: String = "",
     val history: List<ChatMessagePayload> = emptyList(),
     @SerializedName("context_summary")
     val contextSummary: String = "",
@@ -86,6 +88,7 @@ enum class ReceiptActionTarget {
 
 enum class LedgerPeriod {
     DAY,
+    WEEK,
     MONTH,
     YEAR,
 }
@@ -124,10 +127,21 @@ data class AgentResponse(
     val actions: List<AgentAction> = emptyList(),
     @SerializedName("context_summary")
     val contextSummary: String? = null,
+    @SerializedName("changed_domains")
+    val changedDomains: List<String> = emptyList(),
 )
 
 data class HealthResponse(
     val status: String,
+)
+
+data class SyncResponse(
+    val schedules: List<ScheduleItem> = emptyList(),
+    val ledgers: List<LedgerEntry> = emptyList(),
+)
+
+data class DeleteResponse(
+    val deleted: Int = 0,
 )
 
 enum class ConnectionTestStatus {

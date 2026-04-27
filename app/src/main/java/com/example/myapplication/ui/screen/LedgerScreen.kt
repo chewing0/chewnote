@@ -10,6 +10,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,11 +28,16 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -53,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.agent.AppViewModel
 import com.example.myapplication.agent.model.LedgerCategoryCatalog
@@ -80,18 +87,21 @@ fun LedgerScreen(
 ) {
     val entries by viewModel.ledgerEntries.collectAsState()
     var period by remember { mutableStateOf(initialPeriod) }
+    var anchorDate by remember { mutableStateOf(currentAnchor(initialPeriod)) }
     var typeFilter by remember { mutableStateOf(LedgerTypeFilter.ALL) }
     var editingEntry by remember { mutableStateOf<LedgerEntry?>(null) }
+    var showPeriodPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialPeriod) {
         period = initialPeriod
+        anchorDate = currentAnchor(initialPeriod)
     }
 
-    val currentPeriodEntries = remember(entries, period) {
-        filterEntriesByPeriod(entries, period, currentAnchor(period))
+    val currentPeriodEntries = remember(entries, period, anchorDate) {
+        filterEntriesByPeriod(entries, period, anchorDate)
     }
-    val previousPeriodEntries = remember(entries, period) {
-        filterEntriesByPeriod(entries, period, previousAnchor(period))
+    val previousPeriodEntries = remember(entries, period, anchorDate) {
+        filterEntriesByPeriod(entries, period, previousAnchor(period, anchorDate))
     }
     val filteredEntries = remember(currentPeriodEntries, typeFilter) {
         filterEntriesByType(currentPeriodEntries, typeFilter)
@@ -120,10 +130,12 @@ fun LedgerScreen(
         filteredEntries,
         previousFilteredEntries,
         period,
+        anchorDate,
         typeFilter,
     ) {
         buildSummaryData(
             period = period,
+            periodLabel = periodSummaryLabel(period, anchorDate),
             typeFilter = typeFilter,
             currentEntries = currentPeriodEntries,
             previousEntries = previousPeriodEntries,
@@ -137,8 +149,8 @@ fun LedgerScreen(
     val categoryBreakdown = remember(insightEntries) {
         buildCategoryBreakdown(insightEntries)
     }
-    val trendData = remember(entries, period, typeFilter) {
-        buildTrendData(entries, period, typeFilter)
+    val trendData = remember(entries, period, typeFilter, anchorDate) {
+        buildTrendData(entries, period, typeFilter, anchorDate)
     }
     val watchListEntries = remember(insightEntries) {
         insightEntries
@@ -180,12 +192,26 @@ fun LedgerScreen(
                         LedgerPeriod.values().forEach { current ->
                             FilterChip(
                                 selected = period == current,
-                                onClick = { period = current },
+                                onClick = {
+                                    period = current
+                                    anchorDate = normalizeAnchor(current, anchorDate)
+                                },
                                 label = { Text(current.displayName()) },
                             )
                         }
                     }
                 }
+            }
+
+            item {
+                PeriodAnchorSelector(
+                    period = period,
+                    anchorDate = anchorDate,
+                    onPrevious = { anchorDate = shiftAnchor(anchorDate, period, -1) },
+                    onNext = { anchorDate = shiftAnchor(anchorDate, period, 1) },
+                    onCurrent = { anchorDate = currentAnchor(period) },
+                    onPick = { showPeriodPicker = true },
+                )
             }
 
             item {
@@ -259,6 +285,7 @@ fun LedgerScreen(
                     trendData = trendData,
                     period = period,
                     typeFilter = typeFilter,
+                    anchorDate = anchorDate,
                 )
             }
 
@@ -304,6 +331,278 @@ fun LedgerScreen(
             },
         )
     }
+
+    if (showPeriodPicker) {
+        PeriodPickerDialog(
+            period = period,
+            anchorDate = anchorDate,
+            onDismiss = { showPeriodPicker = false },
+            onConfirm = {
+                anchorDate = normalizeAnchor(period, it)
+                showPeriodPicker = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun PeriodAnchorSelector(
+    period: LedgerPeriod,
+    anchorDate: LocalDate,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onCurrent: () -> Unit,
+    onPick: () -> Unit,
+) {
+    val isCurrentPeriod = normalizeAnchor(period, anchorDate) == currentAnchor(period)
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFAF2)),
+        shape = RoundedCornerShape(18.dp),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(
+                listOf(Color(0xFFEADCC8), Color(0xFFFFF5E5)),
+            ),
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    color = Color(0xFFF3E8D7),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    IconButton(
+                        modifier = Modifier.size(38.dp),
+                        onClick = onPrevious,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = period.previousButtonLabel(),
+                            tint = InkDeep,
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = periodRangeLabel(period, anchorDate),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onPick),
+                        style = if (period == LedgerPeriod.WEEK) {
+                            MaterialTheme.typography.titleMedium
+                        } else {
+                            MaterialTheme.typography.titleLarge
+                        },
+                        color = InkDeep,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "${period.displayName()} · 点按选择",
+                            modifier = Modifier.clickable(onClick = onPick),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkSoft,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                        )
+                        if (!isCurrentPeriod) {
+                            Text(
+                                text = "·",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = InkSoft,
+                            )
+                            Text(
+                                text = "回到${period.currentButtonLabel()}",
+                                modifier = Modifier.clickable(onClick = onCurrent),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AccentMoss,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    color = Color(0xFFF3E8D7),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    IconButton(
+                        modifier = Modifier.size(38.dp),
+                        onClick = onNext,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = period.nextButtonLabel(),
+                            tint = InkDeep,
+                        )
+                    }
+                }
+            }
+
+        }
+    }
+}
+
+@Composable
+private fun PeriodPickerDialog(
+    period: LedgerPeriod,
+    anchorDate: LocalDate,
+    onDismiss: () -> Unit,
+    onConfirm: (LocalDate) -> Unit,
+) {
+    val normalizedAnchor = normalizeAnchor(period, anchorDate)
+    var dateText by remember(period, anchorDate) { mutableStateOf(normalizedAnchor.toString()) }
+    var yearText by remember(period, anchorDate) { mutableStateOf(normalizedAnchor.year.toString()) }
+    var monthText by remember(period, anchorDate) { mutableStateOf(normalizedAnchor.monthValue.toString()) }
+    var errorText by remember(period, anchorDate) { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择${period.pickerTitle()}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                when (period) {
+                    LedgerPeriod.DAY -> {
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = dateText,
+                            onValueChange = {
+                                dateText = it
+                                errorText = null
+                            },
+                            label = { Text("日期 YYYY-MM-DD") },
+                            singleLine = true,
+                        )
+                    }
+
+                    LedgerPeriod.WEEK -> {
+                        Text(
+                            text = "输入这一周中的任意一天，按周一到周日统计。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkSoft,
+                        )
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = dateText,
+                            onValueChange = {
+                                dateText = it
+                                errorText = null
+                            },
+                            label = { Text("周内日期 YYYY-MM-DD") },
+                            singleLine = true,
+                        )
+                    }
+
+                    LedgerPeriod.MONTH -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedTextField(
+                                modifier = Modifier.weight(1f),
+                                value = yearText,
+                                onValueChange = {
+                                    yearText = it
+                                    errorText = null
+                                },
+                                label = { Text("年") },
+                                singleLine = true,
+                            )
+                            OutlinedTextField(
+                                modifier = Modifier.weight(1f),
+                                value = monthText,
+                                onValueChange = {
+                                    monthText = it
+                                    errorText = null
+                                },
+                                label = { Text("月") },
+                                singleLine = true,
+                            )
+                        }
+                    }
+
+                    LedgerPeriod.YEAR -> {
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = yearText,
+                            onValueChange = {
+                                yearText = it
+                                errorText = null
+                            },
+                            label = { Text("年份") },
+                            singleLine = true,
+                        )
+                    }
+                }
+
+                val previewAnchor = parsePeriodPickerInput(
+                    period = period,
+                    dateText = dateText,
+                    yearText = yearText,
+                    monthText = monthText,
+                ) ?: normalizedAnchor
+                Text(
+                    text = "选中范围：${periodRangeLabel(period, previewAnchor)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkSoft,
+                )
+                errorText?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AccentVermilion,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val parsed = parsePeriodPickerInput(
+                        period = period,
+                        dateText = dateText,
+                        yearText = yearText,
+                        monthText = monthText,
+                    )
+                    if (parsed == null) {
+                        errorText = "请输入有效的${period.pickerTitle()}。"
+                    } else {
+                        onConfirm(parsed)
+                    }
+                },
+            ) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
 }
 
 @Composable
@@ -595,6 +894,7 @@ private fun TrendSection(
     trendData: List<TrendPoint>,
     period: LedgerPeriod,
     typeFilter: LedgerTypeFilter,
+    anchorDate: LocalDate,
 ) {
     Card {
         Column(
@@ -610,7 +910,7 @@ private fun TrendSection(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = period.trendTitle(typeFilter),
+                text = period.trendTitle(typeFilter, anchorDate),
                 style = MaterialTheme.typography.titleMedium,
                 color = InkDeep,
             )
@@ -1270,6 +1570,7 @@ private val TrendIncomeTone = Color(0xFF95A68E)
 
 private fun buildSummaryData(
     period: LedgerPeriod,
+    periodLabel: String,
     typeFilter: LedgerTypeFilter,
     currentEntries: List<LedgerEntry>,
     previousEntries: List<LedgerEntry>,
@@ -1284,7 +1585,7 @@ private fun buildSummaryData(
         val delta = currentStats.expense - previousStats.expense
         val compareTone = compareTone(delta, prefersLower = true)
         SummaryCardData(
-            title = "${period.focusLabel()}结余",
+            title = "${periodLabel}结余",
             headline = "¥${"%.2f".format(currentStats.net)}",
             headlineTone = if (currentStats.net >= 0) Color(0xFF2F6B3C) else AccentVermilion,
             compareBadge = comparisonBadge(delta, prefersLower = true),
@@ -1324,7 +1625,7 @@ private fun buildSummaryData(
             ),
         )
         SummaryCardData(
-            title = "${period.focusLabel()}${typeFilter.subjectLabel()}总额",
+            title = "${periodLabel}${typeFilter.subjectLabel()}总额",
             headline = "¥${"%.2f".format(currentTotal)}",
             headlineTone = if (isExpense) AccentVermilion else Color(0xFF2F6B3C),
             compareBadge = comparisonBadge(delta, prefersLower = isExpense),
@@ -1487,25 +1788,50 @@ private fun buildTrendData(
     entries: List<LedgerEntry>,
     period: LedgerPeriod,
     typeFilter: LedgerTypeFilter,
+    anchorDate: LocalDate,
 ): List<TrendPoint> {
     val today = LocalDate.now()
+    val normalizedAnchor = normalizeAnchor(period, anchorDate)
     return when (period) {
         LedgerPeriod.DAY -> {
             (6 downTo 0).map { offset ->
-                val day = today.minusDays(offset.toLong())
+                val day = normalizedAnchor.minusDays(offset.toLong())
                 val dayEntries = entries.filter { it.date == day.toString() }
                 buildTrendPoint(
                     label = day.dayOfMonth.toString(),
                     axisLabel = if (day == today) "今天" else "${day.monthValue}/${day.dayOfMonth}",
                     entries = dayEntries,
                     typeFilter = typeFilter,
-                    highlight = day == today,
+                    highlight = day == normalizedAnchor,
+                )
+            }
+        }
+
+        LedgerPeriod.WEEK -> {
+            val selectedWeekStart = normalizeAnchor(LedgerPeriod.WEEK, normalizedAnchor)
+            val currentWeekStart = normalizeAnchor(LedgerPeriod.WEEK, today)
+            (7 downTo 0).map { offset ->
+                val weekStart = selectedWeekStart.minusWeeks(offset.toLong())
+                val weekEnd = weekStart.plusDays(6)
+                buildTrendPoint(
+                    label = "${weekStart.monthValue}/${weekStart.dayOfMonth}",
+                    axisLabel = if (weekStart == currentWeekStart) {
+                        "本周"
+                    } else {
+                        "${weekStart.monthValue}/${weekStart.dayOfMonth}"
+                    },
+                    entries = entries.filter {
+                        val date = runCatching { LocalDate.parse(it.date) }.getOrNull()
+                        date != null && date.isWithin(weekStart, weekEnd)
+                    },
+                    typeFilter = typeFilter,
+                    highlight = weekStart == selectedWeekStart,
                 )
             }
         }
 
         LedgerPeriod.MONTH -> {
-            val month = YearMonth.now()
+            val month = YearMonth.from(normalizedAnchor)
             (1..month.lengthOfMonth()).map { dayOfMonth ->
                 val date = month.atDay(dayOfMonth)
                 buildTrendPoint(
@@ -1519,9 +1845,9 @@ private fun buildTrendData(
         }
 
         LedgerPeriod.YEAR -> {
-            val currentYear = today.year
+            val selectedYear = normalizedAnchor.year
             (1..12).map { monthValue ->
-                val month = YearMonth.of(currentYear, monthValue)
+                val month = YearMonth.of(selectedYear, monthValue)
                 buildTrendPoint(
                     label = "$monthValue 月",
                     axisLabel = "${monthValue}月",
@@ -1530,7 +1856,7 @@ private fun buildTrendData(
                         date != null && YearMonth.from(date) == month
                     },
                     typeFilter = typeFilter,
-                    highlight = monthValue == today.monthValue,
+                    highlight = selectedYear == today.year && monthValue == today.monthValue,
                 )
             }
         }
@@ -1582,15 +1908,29 @@ private fun monthAxisLabel(day: Int, monthLength: Int): String {
 }
 
 private fun currentAnchor(period: LedgerPeriod): LocalDate {
-    return LocalDate.now()
+    return normalizeAnchor(period, LocalDate.now())
 }
 
-private fun previousAnchor(period: LedgerPeriod): LocalDate {
-    val today = LocalDate.now()
+private fun previousAnchor(period: LedgerPeriod, anchorDate: LocalDate): LocalDate {
+    return shiftAnchor(anchorDate, period, -1)
+}
+
+private fun normalizeAnchor(period: LedgerPeriod, rawDate: LocalDate): LocalDate {
     return when (period) {
-        LedgerPeriod.DAY -> today.minusDays(1)
-        LedgerPeriod.MONTH -> today.minusMonths(1)
-        LedgerPeriod.YEAR -> today.minusYears(1)
+        LedgerPeriod.DAY -> rawDate
+        LedgerPeriod.WEEK -> rawDate.minusDays((rawDate.dayOfWeek.value - 1).toLong())
+        LedgerPeriod.MONTH -> rawDate.withDayOfMonth(1)
+        LedgerPeriod.YEAR -> rawDate.withDayOfYear(1)
+    }
+}
+
+private fun shiftAnchor(anchorDate: LocalDate, period: LedgerPeriod, amount: Long): LocalDate {
+    val normalizedAnchor = normalizeAnchor(period, anchorDate)
+    return when (period) {
+        LedgerPeriod.DAY -> normalizedAnchor.plusDays(amount)
+        LedgerPeriod.WEEK -> normalizedAnchor.plusWeeks(amount)
+        LedgerPeriod.MONTH -> normalizedAnchor.plusMonths(amount)
+        LedgerPeriod.YEAR -> normalizedAnchor.plusYears(amount)
     }
 }
 
@@ -1599,14 +1939,17 @@ private fun filterEntriesByPeriod(
     period: LedgerPeriod,
     anchor: LocalDate,
 ): List<LedgerEntry> {
-    val anchorMonth = YearMonth.from(anchor)
+    val normalizedAnchor = normalizeAnchor(period, anchor)
+    val anchorMonth = YearMonth.from(normalizedAnchor)
+    val (rangeStart, rangeEnd) = periodRange(period, normalizedAnchor)
     return entries
         .filter { entry ->
             val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@filter false
             when (period) {
-                LedgerPeriod.DAY -> date == anchor
+                LedgerPeriod.DAY -> date == normalizedAnchor
+                LedgerPeriod.WEEK -> date.isWithin(rangeStart, rangeEnd)
                 LedgerPeriod.MONTH -> YearMonth.from(date) == anchorMonth
-                LedgerPeriod.YEAR -> date.year == anchor.year
+                LedgerPeriod.YEAR -> date.year == normalizedAnchor.year
             }
         }
         .sortedWith(compareByDescending<LedgerEntry> { parseDateSafe(it.date) }.thenByDescending { it.createdAt })
@@ -1623,40 +1966,145 @@ private fun filterEntriesByType(
     }
 }
 
+private fun periodRange(period: LedgerPeriod, anchorDate: LocalDate): Pair<LocalDate, LocalDate> {
+    val normalizedAnchor = normalizeAnchor(period, anchorDate)
+    return when (period) {
+        LedgerPeriod.DAY -> normalizedAnchor to normalizedAnchor
+        LedgerPeriod.WEEK -> normalizedAnchor to normalizedAnchor.plusDays(6)
+        LedgerPeriod.MONTH -> {
+            val month = YearMonth.from(normalizedAnchor)
+            month.atDay(1) to month.atEndOfMonth()
+        }
+        LedgerPeriod.YEAR -> normalizedAnchor.withDayOfYear(1) to normalizedAnchor.withDayOfYear(normalizedAnchor.lengthOfYear())
+    }
+}
+
+private fun periodRangeLabel(period: LedgerPeriod, anchorDate: LocalDate): String {
+    val normalizedAnchor = normalizeAnchor(period, anchorDate)
+    return when (period) {
+        LedgerPeriod.DAY -> fullDateLabel(normalizedAnchor)
+        LedgerPeriod.WEEK -> {
+            val (start, end) = periodRange(period, normalizedAnchor)
+            if (start.year == end.year) {
+                "${start.year}年${shortDateLabel(start)}-${shortDateLabel(end)}"
+            } else {
+                "${fullDateLabel(start)}-${fullDateLabel(end)}"
+            }
+        }
+        LedgerPeriod.MONTH -> {
+            val month = YearMonth.from(normalizedAnchor)
+            "${month.year}年${month.monthValue}月"
+        }
+        LedgerPeriod.YEAR -> "${normalizedAnchor.year}年"
+    }
+}
+
+private fun periodSummaryLabel(period: LedgerPeriod, anchorDate: LocalDate): String {
+    return when (period) {
+        LedgerPeriod.DAY -> periodRangeLabel(period, anchorDate)
+        LedgerPeriod.WEEK -> periodRangeLabel(period, anchorDate)
+        LedgerPeriod.MONTH -> periodRangeLabel(period, anchorDate)
+        LedgerPeriod.YEAR -> periodRangeLabel(period, anchorDate)
+    }
+}
+
+private fun parsePeriodPickerInput(
+    period: LedgerPeriod,
+    dateText: String,
+    yearText: String,
+    monthText: String,
+): LocalDate? {
+    return runCatching {
+        when (period) {
+            LedgerPeriod.DAY -> LocalDate.parse(dateText.trim())
+            LedgerPeriod.WEEK -> normalizeAnchor(period, LocalDate.parse(dateText.trim()))
+            LedgerPeriod.MONTH -> LocalDate.of(yearText.trim().toInt(), monthText.trim().toInt(), 1)
+            LedgerPeriod.YEAR -> LocalDate.of(yearText.trim().toInt(), 1, 1)
+        }
+    }.getOrNull()
+}
+
+private fun fullDateLabel(date: LocalDate): String {
+    return "${date.year}年${date.monthValue}月${date.dayOfMonth}日"
+}
+
+private fun shortDateLabel(date: LocalDate): String {
+    return "${date.monthValue}月${date.dayOfMonth}日"
+}
+
+private fun LocalDate.isWithin(start: LocalDate, end: LocalDate): Boolean {
+    return !isBefore(start) && !isAfter(end)
+}
+
 private fun LedgerPeriod.displayName(): String {
     return when (this) {
         LedgerPeriod.DAY -> "按日"
+        LedgerPeriod.WEEK -> "按周"
         LedgerPeriod.MONTH -> "按月"
         LedgerPeriod.YEAR -> "按年"
     }
 }
 
-private fun LedgerPeriod.focusLabel(): String {
+private fun LedgerPeriod.pickerTitle(): String {
     return when (this) {
-        LedgerPeriod.DAY -> "今日"
+        LedgerPeriod.DAY -> "日期"
+        LedgerPeriod.WEEK -> "周"
+        LedgerPeriod.MONTH -> "月份"
+        LedgerPeriod.YEAR -> "年份"
+    }
+}
+
+private fun LedgerPeriod.currentButtonLabel(): String {
+    return when (this) {
+        LedgerPeriod.DAY -> "今天"
+        LedgerPeriod.WEEK -> "本周"
         LedgerPeriod.MONTH -> "本月"
         LedgerPeriod.YEAR -> "今年"
+    }
+}
+
+private fun LedgerPeriod.previousButtonLabel(): String {
+    return when (this) {
+        LedgerPeriod.DAY -> "上一日"
+        LedgerPeriod.WEEK -> "上一周"
+        LedgerPeriod.MONTH -> "上一月"
+        LedgerPeriod.YEAR -> "上一年"
+    }
+}
+
+private fun LedgerPeriod.nextButtonLabel(): String {
+    return when (this) {
+        LedgerPeriod.DAY -> "下一日"
+        LedgerPeriod.WEEK -> "下一周"
+        LedgerPeriod.MONTH -> "下一月"
+        LedgerPeriod.YEAR -> "下一年"
     }
 }
 
 private fun LedgerPeriod.comparisonLabel(): String {
     return when (this) {
         LedgerPeriod.DAY -> "较昨天"
+        LedgerPeriod.WEEK -> "较上周"
         LedgerPeriod.MONTH -> "较上月"
         LedgerPeriod.YEAR -> "较去年"
     }
 }
 
-private fun LedgerPeriod.trendTitle(typeFilter: LedgerTypeFilter): String {
+private fun LedgerPeriod.trendTitle(typeFilter: LedgerTypeFilter, anchorDate: LocalDate): String {
     val subject = when (typeFilter) {
         LedgerTypeFilter.ALL -> "收支"
         LedgerTypeFilter.EXPENSE -> "支出"
         LedgerTypeFilter.INCOME -> "收入"
     }
+    val normalizedAnchor = normalizeAnchor(this, anchorDate)
     return when (this) {
-        LedgerPeriod.DAY -> "最近 7 天${subject}趋势"
-        LedgerPeriod.MONTH -> "本月每日${subject}趋势"
-        LedgerPeriod.YEAR -> "本年每月${subject}趋势"
+        LedgerPeriod.DAY -> "截至 ${shortDateLabel(normalizedAnchor)} 最近 7 天${subject}趋势"
+        LedgerPeriod.WEEK -> "截至 ${shortDateLabel(normalizedAnchor)} 最近 8 周${subject}趋势"
+        LedgerPeriod.MONTH -> {
+            val month = YearMonth.from(normalizedAnchor)
+            "${month.year}年${month.monthValue}月每日${subject}趋势"
+        }
+        LedgerPeriod.YEAR -> "${normalizedAnchor.year}年每月${subject}趋势"
     }
 }
 

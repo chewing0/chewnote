@@ -90,6 +90,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             localStore.migrateLegacyModelSettings()
             localStore.migrateLegacyStructuredData()
             localStore.migrateLedgerCategoriesToPreset()
+            localStore.migrateToBackendStorageCache()
             localStore.migrateLegacyWelcomeMessage(
                 oldContent = legacyWelcomeMessage,
                 newContent = currentWelcomeMessage,
@@ -100,6 +101,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     content = currentWelcomeMessage,
                 )
             )
+            syncStructuredCache(modelSettings.value)
         }
     }
 
@@ -130,8 +132,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             runCatching {
+                val sessionId = localStore.getOrCreateSessionId()
                 repository.processNaturalLanguage(
                     text = content,
+                    sessionId = sessionId,
                     history = requestContext.history,
                     contextSummary = requestContext.contextSummary,
                     summaryHistory = requestContext.summaryHistory,
@@ -147,20 +151,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 }
-                val receiptMessage = if (response.actions.isNotEmpty()) {
-                    val batchId = UUID.randomUUID().toString()
-                    val createdAt = System.currentTimeMillis()
-                    val batchResult = applyActions(response.actions, batchId, createdAt)
-                    buildReceiptMessage(batchId, createdAt, batchResult)
-                } else {
-                    null
+                if (response.changedDomains.any { it == "schedule" || it == "ledger" }) {
+                    syncStructuredCache(modelSettings.value)
                 }
 
                 val messagesToAppend = buildList {
                     if (response.reply.isNotBlank()) {
                         add(ChatMessage(role = "assistant", content = response.reply))
                     }
-                    receiptMessage?.let(::add)
                 }
                 localStore.appendChatMessages(messagesToAppend)
                 _uiState.value = _uiState.value.copy(
@@ -185,25 +183,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateLedger(entry: LedgerEntry) {
         viewModelScope.launch {
-            localStore.updateLedger(entry)
+            runCatching {
+                repository.updateLedger(entry, modelSettings.value)
+                syncStructuredCache(modelSettings.value)
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
         }
     }
 
     fun deleteLedger(entryId: String) {
         viewModelScope.launch {
-            localStore.deleteLedger(entryId)
+            runCatching {
+                repository.deleteLedger(entryId, modelSettings.value)
+                syncStructuredCache(modelSettings.value)
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
         }
     }
 
     fun updateSchedule(item: ScheduleItem) {
         viewModelScope.launch {
-            localStore.updateSchedule(item)
+            runCatching {
+                repository.updateSchedule(item, modelSettings.value)
+                syncStructuredCache(modelSettings.value)
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
         }
     }
 
     fun deleteSchedule(itemId: String) {
         viewModelScope.launch {
-            localStore.deleteSchedule(itemId)
+            runCatching {
+                repository.deleteSchedule(itemId, modelSettings.value)
+                syncStructuredCache(modelSettings.value)
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
         }
     }
 
@@ -255,6 +273,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             detail = "会先检查后端连通性，再确认当前模型是否可用。",
         )
         _agentStatus.value = repository.testConnection(settings)
+    }
+
+    private suspend fun syncStructuredCache(settings: ModelSettings) {
+        runCatching {
+            val response = repository.syncData(settings)
+            localStore.replaceStructuredCache(
+                schedules = response.schedules,
+                ledgers = response.ledgers,
+            )
+        }
     }
 
     private suspend fun applyActions(

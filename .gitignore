@@ -35,6 +35,7 @@ __pycache__/
 .venv/
 /backend/.venv/
 /backend/__pycache__/
+/backend/data/
 
 # Environment files
 .env

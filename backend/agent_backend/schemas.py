@@ -13,6 +13,7 @@ class ModelConfig(BaseModel):
 
 class AgentRequest(BaseModel):
     text: str = Field(min_length=1)
+    session_id: str = ""
     history: list[dict[str, str]] = Field(default_factory=list)
     context_summary: str = ""
     summary_history: list[dict[str, str]] = Field(default_factory=list)
@@ -28,6 +29,48 @@ class AgentResponse(BaseModel):
     reply: str
     actions: list[AgentAction]
     context_summary: str | None = None
+    changed_domains: list[str] = Field(default_factory=list)
+
+
+class ScheduleRecord(BaseModel):
+    id: str = ""
+    title: str
+    date: str
+    time: str = "09:00"
+    note: str = ""
+    createdAt: int = 0
+    updatedAt: int = 0
+
+
+class ScheduleUpdate(BaseModel):
+    title: str | None = None
+    date: str | None = None
+    time: str | None = None
+    note: str | None = None
+
+
+class LedgerRecord(BaseModel):
+    id: str = ""
+    amount: float
+    category: str
+    note: str = ""
+    date: str
+    entryType: str = "expense"
+    createdAt: int = 0
+    updatedAt: int = 0
+
+
+class LedgerUpdate(BaseModel):
+    amount: float | None = None
+    category: str | None = None
+    note: str | None = None
+    date: str | None = None
+    entryType: str | None = None
+
+
+class SyncResponse(BaseModel):
+    schedules: list[ScheduleRecord] = Field(default_factory=list)
+    ledgers: list[LedgerRecord] = Field(default_factory=list)
 
 
 class ScheduleToolInput(BaseModel):
@@ -51,3 +94,58 @@ class LedgerToolInput(BaseModel):
     note: str = Field(default="", description="账单备注")
     date: str = Field(description="日期，格式 YYYY-MM-DD")
     entryType: str = Field(default="expense", description="expense 或 income")
+
+
+class ScheduleQueryToolInput(BaseModel):
+    date: str = Field(default="", description="单日查询日期，格式 YYYY-MM-DD")
+    startDate: str = Field(default="", description="开始日期，格式 YYYY-MM-DD")
+    endDate: str = Field(default="", description="结束日期，格式 YYYY-MM-DD")
+    keyword: str = Field(default="", description="标题或备注关键词，例如 会议")
+
+
+class ScheduleUpdateToolInput(ScheduleQueryToolInput):
+    title: str = Field(default="", description="新标题，留空表示不修改")
+    newDate: str = Field(default="", description="新日期，格式 YYYY-MM-DD，留空表示不修改")
+    newTime: str = Field(default="", description="新时间，格式 HH:mm，留空表示不修改")
+    note: str = Field(default="", description="新备注，留空表示不修改")
+    all: bool = Field(default=False, description="用户明确要求全部匹配项时为 true")
+
+
+class ScheduleDeleteToolInput(ScheduleQueryToolInput):
+    all: bool = Field(default=False, description="用户明确要求全部匹配项时为 true")
+
+
+class LedgerQueryToolInput(BaseModel):
+    date: str = Field(default="", description="单日查询日期，格式 YYYY-MM-DD")
+    startDate: str = Field(default="", description="开始日期，格式 YYYY-MM-DD")
+    endDate: str = Field(default="", description="结束日期，格式 YYYY-MM-DD")
+    keyword: str = Field(default="", description="分类或备注关键词，例如 咖啡")
+    entryType: str = Field(default="", description="expense、income 或留空")
+
+
+class LedgerSummaryToolInput(BaseModel):
+    startDate: str = Field(description="开始日期，格式 YYYY-MM-DD")
+    endDate: str = Field(description="结束日期，格式 YYYY-MM-DD")
+    entryType: str = Field(default="expense", description="expense、income 或留空")
+    keyword: str = Field(default="", description="分类或备注关键词")
+
+
+class LedgerUpdateToolInput(LedgerQueryToolInput):
+    amount: float | None = Field(default=None, description="新金额，留空表示不修改")
+    category: str = Field(default="", description="新分类，留空表示不修改")
+    note: str = Field(default="", description="新备注，留空表示不修改")
+    newDate: str = Field(default="", description="新日期，格式 YYYY-MM-DD，留空表示不修改")
+    newEntryType: str = Field(default="", description="新类型 expense 或 income，留空表示不修改")
+    all: bool = Field(default=False, description="用户明确要求全部匹配项时为 true")
+
+
+class LedgerDeleteToolInput(LedgerQueryToolInput):
+    all: bool = Field(default=False, description="用户明确要求全部匹配项时为 true")
+
+
+class ConfirmPendingToolInput(BaseModel):
+    selection: str = Field(default="1", description="确认项，例如 1、1,3、全部")
+
+
+class CancelPendingToolInput(BaseModel):
+    reason: str = Field(default="", description="取消原因，可留空")

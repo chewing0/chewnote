@@ -4,15 +4,17 @@ import re
 
 from .llm_client import LLMClient
 from .schemas import AgentAction, AgentResponse
+from .storage import AgentStore
 
 
 class AgentOrchestrator:
-    def __init__(self) -> None:
-        self.llm = LLMClient()
+    def __init__(self, store: AgentStore) -> None:
+        self.llm = LLMClient(store)
 
     async def handle(
         self,
         text: str,
+        session_id: str,
         history: list[dict[str, str]] | None = None,
         model_config: dict[str, str] | None = None,
         context_summary: str = "",
@@ -20,6 +22,7 @@ class AgentOrchestrator:
     ) -> AgentResponse:
         parsed = await self.llm.parse(
             text=text,
+            session_id=session_id,
             history=history,
             model_config=model_config,
             context_summary=context_summary,
@@ -49,6 +52,7 @@ class AgentOrchestrator:
             reply=_plain_text_reply(reply),
             actions=actions,
             context_summary=_plain_text_reply(updated_summary) if updated_summary else None,
+            changed_domains=parsed.get("changed_domains", []) if isinstance(parsed, dict) else [],
         )
 
 
