@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
@@ -21,9 +21,14 @@ class LLMClient:
         self.default_base_url = os.getenv("OPENAI_BASE_URL", "https://api.moonshot.cn/v1").rstrip("/")
         self.default_model = os.getenv("OPENAI_MODEL", "moonshot-v1-8k")
         self.request_timeout_sec = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "18"))
-        self._runtime_actions: list[AgentAction] = []
 
-    def _build_executor(self, api_key: str, base_url: str, model: str) -> AgentExecutor:
+    def _build_executor(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        runtime_actions: list[AgentAction],
+    ) -> AgentExecutor:
         llm = ChatOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -33,23 +38,86 @@ class LLMClient:
             max_retries=1,
         )
 
+        def add_schedule(title: str, date: str, time: str, note: str = "") -> str:
+            runtime_actions.append(
+                AgentAction(
+                    type="add_schedule",
+                    payload={
+                        "title": title,
+                        "date": date,
+                        "time": time,
+                        "note": note,
+                    },
+                )
+            )
+            return "schedule_recorded"
+
+        def add_schedule_series(
+            title: str,
+            startDate: str,
+            time: str,
+            days: int,
+            note: str = "",
+        ) -> str:
+            try:
+                start_date = date.fromisoformat(startDate)
+            except ValueError:
+                start_date = date.today()
+
+            total_days = max(1, min(days, 31))
+            for index in range(total_days):
+                runtime_actions.append(
+                    AgentAction(
+                        type="add_schedule",
+                        payload={
+                            "title": title,
+                            "date": (start_date + timedelta(days=index)).isoformat(),
+                            "time": time,
+                            "note": note,
+                        },
+                    )
+                )
+            return f"schedule_series_recorded:{total_days}"
+
+        def add_ledger(
+            amount: float,
+            category: str = "其他",
+            note: str = "",
+            date: str = "",
+            entryType: str = "expense",
+        ) -> str:
+            ledger_date = date or str(dt.date.today())
+            runtime_actions.append(
+                AgentAction(
+                    type="add_ledger",
+                    payload={
+                        "amount": float(amount),
+                        "category": category,
+                        "note": note,
+                        "date": ledger_date,
+                        "entryType": entryType,
+                    },
+                )
+            )
+            return "ledger_recorded"
+
         tools = [
             StructuredTool.from_function(
                 name="add_schedule",
                 description="新增一条日程安排。",
-                func=self._tool_add_schedule,
+                func=add_schedule,
                 args_schema=ScheduleToolInput,
             ),
             StructuredTool.from_function(
                 name="add_schedule_series",
                 description="批量新增连续多天的日程，例如未来 7 天每天 15:00 的安排。",
-                func=self._tool_add_schedule_series,
+                func=add_schedule_series,
                 args_schema=ScheduleSeriesToolInput,
             ),
             StructuredTool.from_function(
                 name="add_ledger",
                 description="新增一条记账记录。",
-                func=self._tool_add_ledger,
+                func=add_ledger,
                 args_schema=LedgerToolInput,
             ),
         ]
@@ -67,9 +135,14 @@ class LLMClient:
                     "如果日程和记账都有，就都调用。"
                     "事项标题必须忠实于用户原文，不要凭空改写活动名称。"
                     "日期必须是 YYYY-MM-DD，时间必须是 HH:mm。"
+                    "此前对话摘要只作为背景，不要复述给用户。"
                     "完成工具调用后再给出简短中文总结。"
                     "回复必须使用纯文本，不要使用 Markdown。"
                     "不要使用标题、列表、项目符号、加粗、代码块、反引号或链接格式。",
+                ),
+                (
+                    "system",
+                    "此前对话摘要（可能为空）: {context_summary}",
                 ),
                 MessagesPlaceholder(variable_name="chat_history", optional=True),
                 (
@@ -94,76 +167,12 @@ class LLMClient:
         model = (cfg.get("model") or "").strip() or self.default_model
         return api_key, base_url.rstrip("/"), model
 
-    def _tool_add_schedule(self, title: str, date: str, time: str, note: str = "") -> str:
-        self._runtime_actions.append(
-            AgentAction(
-                type="add_schedule",
-                payload={
-                    "title": title,
-                    "date": date,
-                    "time": time,
-                    "note": note,
-                },
-            )
-        )
-        return "schedule_recorded"
-
-    def _tool_add_schedule_series(
-        self,
-        title: str,
-        startDate: str,
-        time: str,
-        days: int,
-        note: str = "",
-    ) -> str:
-        try:
-            start_date = date.fromisoformat(startDate)
-        except ValueError:
-            start_date = date.today()
-
-        total_days = max(1, min(days, 31))
-        for index in range(total_days):
-            self._runtime_actions.append(
-                AgentAction(
-                    type="add_schedule",
-                    payload={
-                        "title": title,
-                        "date": (start_date + timedelta(days=index)).isoformat(),
-                        "time": time,
-                        "note": note,
-                    },
-                )
-            )
-        return f"schedule_series_recorded:{total_days}"
-
-    def _tool_add_ledger(
-        self,
-        amount: float,
-        category: str = "其他",
-        note: str = "",
-        date: str = "",
-        entryType: str = "expense",
-    ) -> str:
-        ledger_date = date or str(dt.date.today())
-        self._runtime_actions.append(
-            AgentAction(
-                type="add_ledger",
-                payload={
-                    "amount": float(amount),
-                    "category": category,
-                    "note": note,
-                    "date": ledger_date,
-                    "entryType": entryType,
-                },
-            )
-        )
-        return "ledger_recorded"
-
     async def parse(
         self,
         text: str,
         history: list[dict[str, str]] | None = None,
         model_config: dict[str, str] | None = None,
+        context_summary: str = "",
     ) -> dict[str, Any]:
         api_key, base_url, model = self._resolve_runtime_config(model_config)
         if not api_key:
@@ -173,8 +182,8 @@ class LLMClient:
             }
 
         try:
-            self._runtime_actions = []
-            executor = self._build_executor(api_key, base_url, model)
+            runtime_actions: list[AgentAction] = []
+            executor = self._build_executor(api_key, base_url, model, runtime_actions)
             chat_history = []
             for item in history or []:
                 role = (item.get("role") or "").lower()
@@ -191,6 +200,7 @@ class LLMClient:
                     {
                         "today": str(date.today()),
                         "input": text,
+                        "context_summary": context_summary.strip(),
                         "chat_history": chat_history,
                     }
                 ),
@@ -199,7 +209,7 @@ class LLMClient:
             reply = result.get("output") if isinstance(result, dict) else ""
             return {
                 "reply": reply if isinstance(reply, str) else "",
-                "actions": [action.model_dump() for action in self._runtime_actions],
+                "actions": [action.model_dump() for action in runtime_actions],
             }
         except asyncio.TimeoutError:
             return {
@@ -225,3 +235,74 @@ class LLMClient:
                 "reply": reply,
                 "actions": [],
             }
+
+    async def summarize_context(
+        self,
+        existing_summary: str,
+        summary_history: list[dict[str, str]] | None = None,
+        model_config: dict[str, str] | None = None,
+    ) -> str | None:
+        history_text = _history_to_text(summary_history or [])
+        if not history_text:
+            return None
+
+        api_key, base_url, model = self._resolve_runtime_config(model_config)
+        if not api_key:
+            return None
+
+        llm = ChatOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            temperature=0.0,
+            timeout=self.request_timeout_sec,
+            max_retries=1,
+        )
+        try:
+            result = await asyncio.wait_for(
+                llm.ainvoke(
+                    [
+                        SystemMessage(
+                            content=(
+                                "你负责维护 MyLife Agent 的会话上下文摘要。"
+                                "请把已有摘要和新增对话合并为一段中文纯文本摘要，最多约 800 字。"
+                                "重点保留用户偏好、已确认事实、未完成事项、日程/记账相关上下文，以及后续多轮指代需要的信息。"
+                                "删除寒暄、重复内容、已经无用的过程描述。不要使用 Markdown、标题或列表。"
+                            )
+                        ),
+                        HumanMessage(
+                            content=(
+                                f"已有摘要:\n{existing_summary.strip() or '暂无'}\n\n"
+                                f"新增对话:\n{history_text}\n\n"
+                                "请返回更新后的摘要。"
+                            )
+                        ),
+                    ]
+                ),
+                timeout=self.request_timeout_sec,
+            )
+            summary = _message_content(result).strip()
+            return summary[:1600] if summary else None
+        except Exception:
+            return None
+
+
+def _history_to_text(history: list[dict[str, str]]) -> str:
+    lines: list[str] = []
+    for item in history:
+        role = (item.get("role") or "").strip()
+        content = (item.get("content") or "").strip()
+        if not role or not content:
+            continue
+        label = "用户" if role.lower() == "user" else "助手"
+        lines.append(f"{label}: {content}")
+    return "\n".join(lines)
+
+
+def _message_content(message: Any) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(item) for item in content)
+    return str(content)

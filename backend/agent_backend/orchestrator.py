@@ -15,8 +15,15 @@ class AgentOrchestrator:
         text: str,
         history: list[dict[str, str]] | None = None,
         model_config: dict[str, str] | None = None,
+        context_summary: str = "",
+        summary_history: list[dict[str, str]] | None = None,
     ) -> AgentResponse:
-        parsed = await self.llm.parse(text, history, model_config)
+        parsed = await self.llm.parse(
+            text=text,
+            history=history,
+            model_config=model_config,
+            context_summary=context_summary,
+        )
         direct_actions = parsed.get("actions") if isinstance(parsed, dict) else None
         actions = [
             AgentAction(type=item["type"], payload=item["payload"])
@@ -33,7 +40,16 @@ class AgentOrchestrator:
                 if actions
                 else "好的，我在这儿。你可以继续聊，也可以让我记账或安排日程。"
             )
-        return AgentResponse(reply=_plain_text_reply(reply), actions=actions)
+        updated_summary = await self.llm.summarize_context(
+            existing_summary=context_summary,
+            summary_history=summary_history,
+            model_config=model_config,
+        )
+        return AgentResponse(
+            reply=_plain_text_reply(reply),
+            actions=actions,
+            context_summary=_plain_text_reply(updated_summary) if updated_summary else None,
+        )
 
 
 def _plain_text_reply(text: str) -> str:

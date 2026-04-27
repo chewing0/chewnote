@@ -10,6 +10,7 @@ import androidx.room.withTransaction
 import com.example.myapplication.agent.model.ActionReceipt
 import com.example.myapplication.agent.model.ChatMessage
 import com.example.myapplication.agent.model.ChatMessageKind
+import com.example.myapplication.agent.model.ContextSnapshot
 import com.example.myapplication.agent.model.LedgerCategoryCatalog
 import com.example.myapplication.agent.model.LedgerEntry
 import com.example.myapplication.agent.model.ModelSettings
@@ -37,6 +38,7 @@ class LocalStore(private val context: Context) {
     private val legacyLedgerKey = stringPreferencesKey("ledger_entries")
     private val legacyScheduleKey = stringPreferencesKey("schedule_items")
     private val chatMessagesKey = stringPreferencesKey("chat_messages")
+    private val contextSnapshotKey = stringPreferencesKey("context_snapshot")
     private val modelSettingsKey = stringPreferencesKey("model_settings")
     private val roomMigrationKey = booleanPreferencesKey("structured_room_migration_v1")
     private val ledgerCategoryMigrationKey = booleanPreferencesKey("ledger_category_migration_v1")
@@ -52,6 +54,12 @@ class LocalStore(private val context: Context) {
     fun observeChatMessages(): Flow<List<ChatMessage>> {
         return context.agentDataStore.data.map { prefs ->
             decodeList(prefs, chatMessagesKey)
+        }
+    }
+
+    fun observeContextSnapshot(): Flow<ContextSnapshot> {
+        return context.agentDataStore.data.map { prefs ->
+            decodeObject(prefs, contextSnapshotKey) ?: ContextSnapshot()
         }
     }
 
@@ -122,6 +130,19 @@ class LocalStore(private val context: Context) {
             if (index !in current.indices) return@edit
             val updated = current.toMutableList().apply { removeAt(index) }
             prefs[chatMessagesKey] = gson.toJson(updated)
+            prefs.remove(contextSnapshotKey)
+        }
+    }
+
+    suspend fun saveContextSnapshot(snapshot: ContextSnapshot) {
+        context.agentDataStore.edit { prefs ->
+            prefs[contextSnapshotKey] = gson.toJson(snapshot)
+        }
+    }
+
+    suspend fun clearContextSnapshot() {
+        context.agentDataStore.edit { prefs ->
+            prefs.remove(contextSnapshotKey)
         }
     }
 
@@ -248,6 +269,14 @@ class LocalStore(private val context: Context) {
         val json = prefs[key] ?: return emptyList()
         val type = object : TypeToken<List<T>>() {}.type
         return runCatching { gson.fromJson<List<T>>(json, type) }.getOrDefault(emptyList())
+    }
+
+    private inline fun <reified T> decodeObject(
+        prefs: Preferences,
+        key: Preferences.Key<String>,
+    ): T? {
+        val json = prefs[key] ?: return null
+        return runCatching { gson.fromJson(json, T::class.java) }.getOrNull()
     }
 
     private fun normalizeLedgerEntry(entry: LedgerEntry): LedgerEntry {

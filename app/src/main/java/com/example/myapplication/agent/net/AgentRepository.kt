@@ -12,6 +12,8 @@ class AgentRepository {
     suspend fun processNaturalLanguage(
         text: String,
         history: List<ChatMessagePayload>,
+        contextSummary: String,
+        summaryHistory: List<ChatMessagePayload>,
         settings: ModelSettings,
     ): AgentResponse {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
@@ -20,6 +22,8 @@ class AgentRepository {
             AgentRequest(
                 text = text.trim(),
                 history = history,
+                contextSummary = contextSummary,
+                summaryHistory = summaryHistory,
                 modelConfig = modelConfig,
             )
         )

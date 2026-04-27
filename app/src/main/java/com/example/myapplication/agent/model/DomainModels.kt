@@ -34,6 +34,10 @@ data class ScheduleItem(
 data class AgentRequest(
     val text: String,
     val history: List<ChatMessagePayload> = emptyList(),
+    @SerializedName("context_summary")
+    val contextSummary: String = "",
+    @SerializedName("summary_history")
+    val summaryHistory: List<ChatMessagePayload> = emptyList(),
     @SerializedName("model_config")
     val modelConfig: ModelConfigPayload? = null,
 )
@@ -56,6 +60,12 @@ data class ModelSettings(
 data class ChatMessagePayload(
     val role: String,
     val content: String,
+)
+
+data class ContextSnapshot(
+    val summary: String = "",
+    val summarizedMessageCount: Int = 0,
+    val updatedAt: Long = 0L,
 )
 
 enum class ChatMessageKind {
@@ -112,6 +122,8 @@ data class AgentAction(
 data class AgentResponse(
     val reply: String,
     val actions: List<AgentAction> = emptyList(),
+    @SerializedName("context_summary")
+    val contextSummary: String? = null,
 )
 
 data class HealthResponse(

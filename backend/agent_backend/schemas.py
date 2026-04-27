@@ -14,6 +14,8 @@ class ModelConfig(BaseModel):
 class AgentRequest(BaseModel):
     text: str = Field(min_length=1)
     history: list[dict[str, str]] = Field(default_factory=list)
+    context_summary: str = ""
+    summary_history: list[dict[str, str]] = Field(default_factory=list)
     runtime_config: ModelConfig | None = Field(default=None, alias="model_config")
 
 
@@ -25,6 +27,7 @@ class AgentAction(BaseModel):
 class AgentResponse(BaseModel):
     reply: str
     actions: list[AgentAction]
+    context_summary: str | None = None
 
 
 class ScheduleToolInput(BaseModel):

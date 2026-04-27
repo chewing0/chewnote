@@ -12,6 +12,7 @@ import com.example.myapplication.agent.model.ChatMessageKind
 import com.example.myapplication.agent.model.ChatMessagePayload
 import com.example.myapplication.agent.model.ConnectionTestResult
 import com.example.myapplication.agent.model.ConnectionTestStatus
+import com.example.myapplication.agent.model.ContextSnapshot
 import com.example.myapplication.agent.model.LedgerEntry
 import com.example.myapplication.agent.model.LedgerPeriod
 import com.example.myapplication.agent.model.ModelSettings
@@ -72,6 +73,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         emptyList(),
     )
 
+    private val contextSnapshot: StateFlow<ContextSnapshot> = localStore.observeContextSnapshot().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        ContextSnapshot(),
+    )
+
     val modelSettings: StateFlow<ModelSettings> = localStore.observeModelSettings().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -111,7 +118,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val requestHistory = chatMessages.value.toPayload()
+        val requestContext = chatMessages.value.toContextRequest(contextSnapshot.value)
         val userMessage = ChatMessage(role = "user", content = content)
 
         viewModelScope.launch {
@@ -123,8 +130,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             runCatching {
-                repository.processNaturalLanguage(content, requestHistory, modelSettings.value)
+                repository.processNaturalLanguage(
+                    text = content,
+                    history = requestContext.history,
+                    contextSummary = requestContext.contextSummary,
+                    summaryHistory = requestContext.summaryHistory,
+                    settings = modelSettings.value,
+                )
             }.onSuccess { response ->
+                response.contextSummary?.takeIf { requestContext.summaryHistory.isNotEmpty() }?.let { summary ->
+                    localStore.saveContextSnapshot(
+                        ContextSnapshot(
+                            summary = summary,
+                            summarizedMessageCount = requestContext.nextSummarizedMessageCount,
+                            updatedAt = System.currentTimeMillis(),
+                        )
+                    )
+                }
                 val receiptMessage = if (response.actions.isNotEmpty()) {
                     val batchId = UUID.randomUUID().toString()
                     val createdAt = System.currentTimeMillis()
@@ -354,6 +376,18 @@ private data class BatchResult(
     val ledgers: List<LedgerEntry>,
 )
 
+internal data class ContextRequest(
+    val history: List<ChatMessagePayload>,
+    val contextSummary: String,
+    val summaryHistory: List<ChatMessagePayload>,
+    val nextSummarizedMessageCount: Int,
+)
+
+internal const val RECENT_CONTEXT_MESSAGE_LIMIT = 12
+internal const val SUMMARY_REFRESH_THRESHOLD = 8
+internal const val SUMMARY_SOURCE_MESSAGE_LIMIT = 40
+internal const val SUMMARY_SOURCE_CHAR_LIMIT = 12_000
+
 private fun Map<String, Any?>.string(key: String, fallback: String): String {
     val value = this[key] ?: return fallback
     return value.toString()
@@ -368,12 +402,58 @@ private fun Map<String, Any?>.double(key: String, fallback: Double): Double {
     }
 }
 
+internal fun List<ChatMessage>.toContextRequest(snapshot: ContextSnapshot): ContextRequest {
+    val payloads = toPayload()
+    val recentStart = (payloads.size - RECENT_CONTEXT_MESSAGE_LIMIT).coerceAtLeast(0)
+    val history = payloads.drop(recentStart)
+
+    val summarizedCount = snapshot.summarizedMessageCount.coerceIn(0, payloads.size)
+    val unsummarizedStart = summarizedCount.coerceAtMost(recentStart)
+    val unsummarized = if (recentStart > unsummarizedStart) {
+        payloads.subList(unsummarizedStart, recentStart)
+    } else {
+        emptyList()
+    }
+
+    val summaryHistory = if (unsummarized.size >= SUMMARY_REFRESH_THRESHOLD) {
+        unsummarized.takeForSummary()
+    } else {
+        emptyList()
+    }
+
+    return ContextRequest(
+        history = history,
+        contextSummary = snapshot.summary,
+        summaryHistory = summaryHistory,
+        nextSummarizedMessageCount = unsummarizedStart + summaryHistory.size,
+    )
+}
+
 private fun List<ChatMessage>.toPayload(): List<ChatMessagePayload> {
     return asSequence()
         .filter { it.kind == ChatMessageKind.MESSAGE }
         .filter { it.content.isNotBlank() }
         .map { ChatMessagePayload(role = it.role, content = it.content) }
         .toList()
+}
+
+private fun List<ChatMessagePayload>.takeForSummary(): List<ChatMessagePayload> {
+    val selected = mutableListOf<ChatMessagePayload>()
+    var totalChars = 0
+    for (message in take(SUMMARY_SOURCE_MESSAGE_LIMIT)) {
+        val messageChars = message.role.length + message.content.length
+        if (selected.isEmpty() && messageChars > SUMMARY_SOURCE_CHAR_LIMIT) {
+            val allowedContentLength = (SUMMARY_SOURCE_CHAR_LIMIT - message.role.length).coerceAtLeast(0)
+            selected += message.copy(content = message.content.take(allowedContentLength))
+            break
+        }
+        if (selected.isNotEmpty() && totalChars + messageChars > SUMMARY_SOURCE_CHAR_LIMIT) {
+            break
+        }
+        selected += message
+        totalChars += messageChars
+    }
+    return selected
 }
 
 private fun Throwable.toReadableMessage(): String {
