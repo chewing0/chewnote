@@ -44,7 +44,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -109,7 +108,6 @@ import kotlin.math.absoluteValue
 @Composable
 fun AgentHomeScreen(
     viewModel: AppViewModel,
-    onOpenSettings: () -> Unit,
     onOpenSchedule: (targetDate: String?, batchId: String?) -> Unit,
     onOpenLedger: (period: LedgerPeriod, batchId: String?) -> Unit,
 ) {
@@ -184,11 +182,11 @@ fun AgentHomeScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
                                     text = "MyLife",
                                     style = MaterialTheme.typography.titleMedium,
@@ -198,22 +196,6 @@ fun AgentHomeScreen(
                                     text = agentStatus.bannerLabel(),
                                     tone = agentStatus.bannerTone(),
                                 )
-                            }
-
-                            Surface(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clickable(onClick = onOpenSettings),
-                                color = Color(0xFFE7D8C1),
-                                shape = RoundedCornerShape(12.dp),
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Settings,
-                                        contentDescription = "设置",
-                                        tint = InkDeep,
-                                    )
-                                }
                             }
                         }
                     }
@@ -435,7 +417,7 @@ private fun CompactChatInput(
         modifier = modifier.defaultMinSize(minHeight = 46.dp),
         color = Color(0xFFFFFBF4),
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, InkDeep),
+        border = BorderStroke(1.dp, AccentVermilion.copy(alpha = 0.42f)),
     ) {
         BasicTextField(
             value = value,
@@ -470,7 +452,7 @@ private fun SummaryBandCard(
     Surface(
         modifier = modifier,
         color = Color(0xFFFFF7EA),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         tonalElevation = 1.dp,
     ) {
         Column(
@@ -505,7 +487,7 @@ private fun ActionReceiptCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
@@ -570,19 +552,19 @@ private fun ChatBubble(message: ChatMessage, onLongPress: () -> Unit) {
         Card(
             modifier = Modifier
                 .widthIn(max = 260.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .animateContentSize(
                     animationSpec = spring(
                         dampingRatio = 0.92f,
                         stiffness = 760f,
                     )
                 ),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(8.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isUser) InkDeep else Color(0xFFFFF9EE),
+                containerColor = if (isUser) Color(0xFFC73A30) else Color(0xFFFFF9EE),
             ),
             border = CardDefaults.outlinedCardBorder().copy(
-                brush = SolidColor(if (isUser) InkDeep else LineSoft),
+                brush = SolidColor(if (isUser) AccentVermilion.copy(alpha = 0.24f) else LineSoft.copy(alpha = 0.52f)),
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = if (isUser) 3.dp else 1.dp),
         ) {

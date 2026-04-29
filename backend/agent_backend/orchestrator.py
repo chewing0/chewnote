@@ -13,6 +13,7 @@ class AgentOrchestrator:
 
     async def handle(
         self,
+        user_id: str,
         text: str,
         session_id: str,
         history: list[dict[str, str]] | None = None,
@@ -21,6 +22,7 @@ class AgentOrchestrator:
         summary_history: list[dict[str, str]] | None = None,
     ) -> AgentResponse:
         parsed = await self.llm.parse(
+            user_id=user_id,
             text=text,
             session_id=session_id,
             history=history,

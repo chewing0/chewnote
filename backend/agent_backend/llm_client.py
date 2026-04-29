@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import logging
 import os
 import re
 from datetime import date, timedelta
@@ -33,6 +34,9 @@ from .schemas import (
 from .storage import DOMAIN_LEDGER, DOMAIN_SCHEDULE, AgentStore
 
 
+logger = logging.getLogger(__name__)
+
+
 class LLMClient:
     def __init__(self, store: AgentStore) -> None:
         self.store = store
@@ -47,6 +51,7 @@ class LLMClient:
         api_key: str,
         base_url: str,
         model: str,
+        user_id: str,
         session_id: str,
         changed_domains: set[str],
         current_date: str,
@@ -65,7 +70,7 @@ class LLMClient:
 
         def create_schedule(title: str, date: str, time: str, note: str = "") -> str:
             item_date = _resolve_relative_date(user_text, current_date) or date
-            item = self.store.create_schedule(title, item_date, time, note)
+            item = self.store.create_schedule(user_id, title, item_date, time, note)
             changed_domains.add(DOMAIN_SCHEDULE)
             return _json({"status": "created", "schedule": item})
 
@@ -83,6 +88,7 @@ class LLMClient:
             total_days = max(1, min(days, 31))
             items = [
                 self.store.create_schedule(
+                    user_id=user_id,
                     title=title,
                     date=(start_date + timedelta(days=index)).isoformat(),
                     item_time=time,
@@ -97,6 +103,7 @@ class LLMClient:
             resolved_date = _resolve_relative_date(user_text, current_date)
             resolved_range = _resolve_relative_range(user_text, current_date)
             items = self.store.list_schedules(
+                user_id,
                 date=resolved_date or date,
                 start_date=resolved_range[0] if resolved_range else startDate,
                 end_date=resolved_range[1] if resolved_range else endDate,
@@ -127,6 +134,7 @@ class LLMClient:
             resolved_range = _resolve_relative_range(user_text, current_date)
             return self._mutate_schedules(
                 session_id=session_id,
+                user_id=user_id,
                 changed_domains=changed_domains,
                 operation="update",
                 date=resolved_date or date,
@@ -148,6 +156,7 @@ class LLMClient:
             resolved_range = _resolve_relative_range(user_text, current_date)
             return self._mutate_schedules(
                 session_id=session_id,
+                user_id=user_id,
                 changed_domains=changed_domains,
                 operation="delete",
                 date=resolved_date or date,
@@ -168,6 +177,7 @@ class LLMClient:
             if amount is None:
                 return _json({"status": "missing_amount", "message": "没有识别到记账金额，请向用户追问金额。"})
             item = self.store.create_ledger(
+                user_id=user_id,
                 amount=float(amount),
                 category=category,
                 note=note,
@@ -187,6 +197,7 @@ class LLMClient:
             resolved_date = _resolve_relative_date(user_text, current_date)
             resolved_range = _resolve_relative_range(user_text, current_date)
             items = self.store.list_ledgers(
+                user_id,
                 date=resolved_date or date,
                 start_date=resolved_range[0] if resolved_range else startDate,
                 end_date=resolved_range[1] if resolved_range else endDate,
@@ -203,6 +214,7 @@ class LLMClient:
         ) -> str:
             resolved_range = _resolve_relative_range(user_text, current_date)
             summary = self.store.summarize_ledgers(
+                user_id,
                 start_date=resolved_range[0] if resolved_range else startDate,
                 end_date=resolved_range[1] if resolved_range else endDate,
                 entry_type=entryType,
@@ -236,6 +248,7 @@ class LLMClient:
             resolved_range = _resolve_relative_range(user_text, current_date)
             return self._mutate_ledgers(
                 session_id=session_id,
+                user_id=user_id,
                 changed_domains=changed_domains,
                 operation="update",
                 date=resolved_date or date,
@@ -259,6 +272,7 @@ class LLMClient:
             resolved_range = _resolve_relative_range(user_text, current_date)
             return self._mutate_ledgers(
                 session_id=session_id,
+                user_id=user_id,
                 changed_domains=changed_domains,
                 operation="delete",
                 date=resolved_date or date,
@@ -271,10 +285,10 @@ class LLMClient:
             )
 
         def confirm_pending_operation(selection: str = "1") -> str:
-            return self._confirm_pending(session_id, changed_domains, selection)
+            return self._confirm_pending(user_id, session_id, changed_domains, selection)
 
         def cancel_pending_operation(reason: str = "") -> str:
-            self.store.clear_pending_operation(session_id)
+            self.store.clear_pending_operation(user_id, session_id)
             return _json({"status": "cancelled", "reason": reason})
 
         tools = [
@@ -394,6 +408,7 @@ class LLMClient:
 
     async def parse(
         self,
+        user_id: str,
         text: str,
         session_id: str,
         history: list[dict[str, str]] | None = None,
@@ -415,6 +430,7 @@ class LLMClient:
                 api_key,
                 base_url,
                 model,
+                user_id,
                 session_id,
                 changed_domains,
                 backend_date,
@@ -460,6 +476,7 @@ class LLMClient:
                 "changed_domains": [],
             }
         except Exception as exc:
+            logger.exception("Agent model/tool execution failed")
             return {
                 "reply": _friendly_model_error(str(exc)),
                 "actions": [],
@@ -469,6 +486,7 @@ class LLMClient:
     def _mutate_schedules(
         self,
         session_id: str,
+        user_id: str,
         changed_domains: set[str],
         operation: str,
         date: str,
@@ -478,7 +496,7 @@ class LLMClient:
         updates: dict[str, Any],
         all_matches: bool,
     ) -> str:
-        candidates = self.store.list_schedules(date=date, start_date=start_date, end_date=end_date, keyword=keyword)
+        candidates = self.store.list_schedules(user_id, date=date, start_date=start_date, end_date=end_date, keyword=keyword)
         if not candidates:
             return _json({"status": "not_found", "message": "没有找到匹配的日程。"})
         if operation == "update" and not updates:
@@ -486,10 +504,10 @@ class LLMClient:
         ids = [item["id"] for item in candidates]
         if len(candidates) == 1 or all_matches:
             selected_ids = ids if all_matches else ids[:1]
-            result = self.store.update_schedules(selected_ids, updates) if operation == "update" else self.store.delete_schedules(selected_ids)
+            result = self.store.update_schedules(user_id, selected_ids, updates) if operation == "update" else self.store.delete_schedules(user_id, selected_ids)
             changed_domains.add(DOMAIN_SCHEDULE)
             return _json({"status": "updated" if operation == "update" else "deleted", "count": len(selected_ids), "result": result})
-        pending = self.store.create_pending_operation(session_id, DOMAIN_SCHEDULE, operation, ids, updates)
+        pending = self.store.create_pending_operation(user_id, session_id, DOMAIN_SCHEDULE, operation, ids, updates)
         return _json(
             {
                 "status": "needs_confirmation",
@@ -502,6 +520,7 @@ class LLMClient:
     def _mutate_ledgers(
         self,
         session_id: str,
+        user_id: str,
         changed_domains: set[str],
         operation: str,
         date: str,
@@ -513,6 +532,7 @@ class LLMClient:
         all_matches: bool,
     ) -> str:
         candidates = self.store.list_ledgers(
+            user_id,
             date=date,
             start_date=start_date,
             end_date=end_date,
@@ -526,10 +546,10 @@ class LLMClient:
         ids = [item["id"] for item in candidates]
         if len(candidates) == 1 or all_matches:
             selected_ids = ids if all_matches else ids[:1]
-            result = self.store.update_ledgers(selected_ids, updates) if operation == "update" else self.store.delete_ledgers(selected_ids)
+            result = self.store.update_ledgers(user_id, selected_ids, updates) if operation == "update" else self.store.delete_ledgers(user_id, selected_ids)
             changed_domains.add(DOMAIN_LEDGER)
             return _json({"status": "updated" if operation == "update" else "deleted", "count": len(selected_ids), "result": result})
-        pending = self.store.create_pending_operation(session_id, DOMAIN_LEDGER, operation, ids, updates)
+        pending = self.store.create_pending_operation(user_id, session_id, DOMAIN_LEDGER, operation, ids, updates)
         return _json(
             {
                 "status": "needs_confirmation",
@@ -539,8 +559,8 @@ class LLMClient:
             }
         )
 
-    def _confirm_pending(self, session_id: str, changed_domains: set[str], selection: str) -> str:
-        pending = self.store.get_pending_operation(session_id)
+    def _confirm_pending(self, user_id: str, session_id: str, changed_domains: set[str], selection: str) -> str:
+        pending = self.store.get_pending_operation(user_id, session_id)
         if pending is None:
             return _json({"status": "not_found", "message": "当前没有等待确认的操作。"})
         candidate_ids = pending["candidate_ids"]
@@ -552,10 +572,10 @@ class LLMClient:
         operation = pending["operation"]
         updates = pending["updates"]
         if domain == DOMAIN_SCHEDULE:
-            result = self.store.update_schedules(selected_ids, updates) if operation == "update" else self.store.delete_schedules(selected_ids)
+            result = self.store.update_schedules(user_id, selected_ids, updates) if operation == "update" else self.store.delete_schedules(user_id, selected_ids)
         else:
-            result = self.store.update_ledgers(selected_ids, updates) if operation == "update" else self.store.delete_ledgers(selected_ids)
-        self.store.clear_pending_operation(session_id)
+            result = self.store.update_ledgers(user_id, selected_ids, updates) if operation == "update" else self.store.delete_ledgers(user_id, selected_ids)
+        self.store.clear_pending_operation(user_id, session_id)
         changed_domains.add(domain)
         return _json({"status": "confirmed", "domain": domain, "operation": operation, "count": len(selected_ids), "result": result})
 
@@ -623,6 +643,14 @@ def _friendly_model_error(error_text: str) -> str:
         return "模型名称或 Base URL 不正确，请检查后重试。"
     if "connection" in lowered or "dns" in lowered or "name or service not known" in lowered:
         return "模型服务当前不可达，请检查 Base URL 或网络连接。"
+    if "tool_calls" in lowered or "tool call" in lowered or "function calling" in lowered or "tools" in lowered:
+        return "当前模型或接口不支持工具调用，请在“我的”里更换支持 tool/function calling 的模型，或检查 Base URL 是否是 OpenAI 兼容的 /v1 接口。"
+    if "rate limit" in lowered or "429" in lowered or "too many requests" in lowered:
+        return "模型服务请求过于频繁或额度受限，请稍后重试。"
+    if "timeout" in lowered or "timed out" in lowered:
+        return "模型响应超时了，请稍后重试，或换一个更稳定的模型配置。"
+    if os.getenv("AGENT_DEBUG_ERRORS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return f"Agent 服务暂时不可用：{error_text[:300]}"
     return "Agent 服务暂时不可用，请稍后重试。"
 
 
@@ -638,8 +666,16 @@ def _backend_time_context(timezone_name: str) -> tuple[str, str, str]:
         timezone = ZoneInfo(timezone_name)
         normalized_name = timezone_name
     except ZoneInfoNotFoundError:
-        timezone = ZoneInfo("Asia/Shanghai")
-        normalized_name = "Asia/Shanghai"
+        if timezone_name == "Asia/Shanghai":
+            timezone = dt.timezone(dt.timedelta(hours=8))
+            normalized_name = "Asia/Shanghai"
+        else:
+            try:
+                timezone = ZoneInfo("Asia/Shanghai")
+                normalized_name = "Asia/Shanghai"
+            except ZoneInfoNotFoundError:
+                timezone = dt.timezone(dt.timedelta(hours=8))
+                normalized_name = "Asia/Shanghai"
     now = dt.datetime.now(timezone)
     return now.date().isoformat(), now.strftime("%H:%M"), normalized_name
 

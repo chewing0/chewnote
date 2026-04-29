@@ -2,12 +2,32 @@
 
 ## 1. 启动
 
+Windows 推荐直接运行：
+
+```powershell
+cd backend
+.\start_backend.bat
+```
+
+脚本会自动检查 `.env`、创建 `.venv`、安装 `requirements.txt`、初始化 PostgreSQL 数据库并启动 `uvicorn`。
+
+可选参数：
+
+```powershell
+.\start_backend.bat -Port 8001
+.\start_backend.bat -SkipInstall
+.\start_backend.bat -SkipDbInit
+```
+
+手动启动方式：
+
 ```bash
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
+python scripts/init_postgres_db.py
 uvicorn main:app --reload --port 8000
 ```
 
@@ -17,6 +37,11 @@ uvicorn main:app --reload --port 8000
 - `OPENAI_BASE_URL`: OpenAI 兼容服务地址，默认 `https://api.moonshot.cn/v1`
 - `OPENAI_MODEL`: 模型名，默认 `moonshot-v1-8k`
 - `OPENAI_TIMEOUT_SECONDS`: Agent 请求超时秒数，默认 `18`
+- `DATABASE_URL`: PostgreSQL 业务库连接地址
+- `AUTH_SECRET_KEY`: JWT 签名密钥，正式使用时请改成长随机字符串
+- `AUTH_DEV_RETURN_RESET_TOKEN`: 开发期是否在找回密码响应中返回一次性重置 Token
+- `AGENT_DEBUG_ERRORS`: 开发期可设为 `true`，让 Agent 返回更具体的模型/工具异常
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM`: 可选邮件配置，用于发送密码重置邮件
 
 如果不配置 API Key，后端仅返回提示信息，不会执行工具调用。
 
@@ -29,7 +54,23 @@ uvicorn main:app --reload --port 8000
 ## 3. 接口
 
 - `GET /health`
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+- `GET /auth/me`
+- `POST /auth/password/forgot`
+- `POST /auth/password/reset`
+- `POST /auth/password/change`
+- `GET /sync`
+- `POST /sync/import`
 - `POST /agent/process`
+
+除 `/health` 和 `/auth/*` 登录注册类接口外，日程、记账、同步和 Agent 接口都需要请求头：
+
+```http
+Authorization: Bearer your_access_token
+```
 
 请求示例：
 

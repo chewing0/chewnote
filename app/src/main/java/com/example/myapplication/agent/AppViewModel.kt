@@ -7,6 +7,8 @@ import com.example.myapplication.agent.data.LocalStore
 import com.example.myapplication.agent.model.ActionReceipt
 import com.example.myapplication.agent.model.ActionReceiptKind
 import com.example.myapplication.agent.model.AgentAction
+import com.example.myapplication.agent.model.AuthResponse
+import com.example.myapplication.agent.model.AuthState
 import com.example.myapplication.agent.model.ChatMessage
 import com.example.myapplication.agent.model.ChatMessageKind
 import com.example.myapplication.agent.model.ChatMessagePayload
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import java.time.LocalDate
 import java.util.UUID
 
@@ -32,6 +35,13 @@ data class AgentUiState(
     val input: String = "",
     val loading: Boolean = false,
     val error: String? = null,
+)
+
+data class AccountUiState(
+    val loading: Boolean = false,
+    val error: String? = null,
+    val notice: String = "",
+    val pendingSyncUserId: String = "",
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -42,6 +52,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(AgentUiState())
     val uiState: StateFlow<AgentUiState> = _uiState.asStateFlow()
+
+    private val _accountUiState = MutableStateFlow(AccountUiState())
+    val accountUiState: StateFlow<AccountUiState> = _accountUiState.asStateFlow()
 
     private val _connectionTestResult = MutableStateFlow(ConnectionTestResult())
     val connectionTestResult: StateFlow<ConnectionTestResult> = _connectionTestResult.asStateFlow()
@@ -85,6 +98,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         ModelSettings(),
     )
 
+    val authState: StateFlow<AuthState> = localStore.observeAuthState().stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        AuthState(),
+    )
+
     init {
         viewModelScope.launch {
             localStore.migrateLegacyModelSettings()
@@ -101,7 +120,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     content = currentWelcomeMessage,
                 )
             )
-            syncStructuredCache(modelSettings.value)
+            val currentAuth = localStore.getAuthState()
+            if (currentAuth.isLoggedIn) {
+                syncStoredSessionSafely()
+            }
         }
     }
 
@@ -119,6 +141,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(error = "请输入你想让我处理的内容")
             return
         }
+        if (!authState.value.isLoggedIn) {
+            _uiState.value = _uiState.value.copy(error = "请先在“我的”里登录，再使用 Agent 记录或查询日程记账。")
+            return
+        }
 
         val requestContext = chatMessages.value.toContextRequest(contextSnapshot.value)
         val userMessage = ChatMessage(role = "user", content = content)
@@ -133,14 +159,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             runCatching {
                 val sessionId = localStore.getOrCreateSessionId()
-                repository.processNaturalLanguage(
-                    text = content,
-                    sessionId = sessionId,
-                    history = requestContext.history,
-                    contextSummary = requestContext.contextSummary,
-                    summaryHistory = requestContext.summaryHistory,
-                    settings = modelSettings.value,
-                )
+                authorizedCall { token ->
+                    repository.processNaturalLanguage(
+                        text = content,
+                        sessionId = sessionId,
+                        history = requestContext.history,
+                        contextSummary = requestContext.contextSummary,
+                        summaryHistory = requestContext.summaryHistory,
+                        settings = modelSettings.value,
+                        accessToken = token,
+                    )
+                }
             }.onSuccess { response ->
                 response.contextSummary?.takeIf { requestContext.summaryHistory.isNotEmpty() }?.let { summary ->
                     localStore.saveContextSnapshot(
@@ -152,7 +181,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 if (response.changedDomains.any { it == "schedule" || it == "ledger" }) {
-                    syncStructuredCache(modelSettings.value)
+                    authorizedCall { token ->
+                        syncStructuredCache(modelSettings.value, token, authState.value.user?.id.orEmpty())
+                    }
                 }
 
                 val messagesToAppend = buildList {
@@ -184,8 +215,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun updateLedger(entry: LedgerEntry) {
         viewModelScope.launch {
             runCatching {
-                repository.updateLedger(entry, modelSettings.value)
-                syncStructuredCache(modelSettings.value)
+                authorizedCall { token ->
+                    repository.updateLedger(entry, modelSettings.value, token)
+                    syncStructuredCache(modelSettings.value, token, authState.value.user?.id.orEmpty())
+                }
             }.onFailure { throwable ->
                 _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
             }
@@ -195,8 +228,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteLedger(entryId: String) {
         viewModelScope.launch {
             runCatching {
-                repository.deleteLedger(entryId, modelSettings.value)
-                syncStructuredCache(modelSettings.value)
+                authorizedCall { token ->
+                    repository.deleteLedger(entryId, modelSettings.value, token)
+                    syncStructuredCache(modelSettings.value, token, authState.value.user?.id.orEmpty())
+                }
             }.onFailure { throwable ->
                 _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
             }
@@ -206,8 +241,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun updateSchedule(item: ScheduleItem) {
         viewModelScope.launch {
             runCatching {
-                repository.updateSchedule(item, modelSettings.value)
-                syncStructuredCache(modelSettings.value)
+                authorizedCall { token ->
+                    repository.updateSchedule(item, modelSettings.value, token)
+                    syncStructuredCache(modelSettings.value, token, authState.value.user?.id.orEmpty())
+                }
             }.onFailure { throwable ->
                 _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
             }
@@ -217,8 +254,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteSchedule(itemId: String) {
         viewModelScope.launch {
             runCatching {
-                repository.deleteSchedule(itemId, modelSettings.value)
-                syncStructuredCache(modelSettings.value)
+                authorizedCall { token ->
+                    repository.deleteSchedule(itemId, modelSettings.value, token)
+                    syncStructuredCache(modelSettings.value, token, authState.value.user?.id.orEmpty())
+                }
             }.onFailure { throwable ->
                 _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
             }
@@ -252,7 +291,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 title = "正在测试连接",
                 detail = "先检查后端连通性，再验证当前模型是否可用。",
             )
-            _connectionTestResult.value = repository.testConnection(candidateSettings)
+            _connectionTestResult.value = repository.testConnection(candidateSettings, authState.value.accessToken)
         }
     }
 
@@ -272,17 +311,188 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             title = "正在检查 Agent 状态",
             detail = "会先检查后端连通性，再确认当前模型是否可用。",
         )
-        _agentStatus.value = repository.testConnection(settings)
+        _agentStatus.value = repository.testConnection(settings, authState.value.accessToken)
     }
 
-    private suspend fun syncStructuredCache(settings: ModelSettings) {
-        runCatching {
-            val response = repository.syncData(settings)
-            localStore.replaceStructuredCache(
-                schedules = response.schedules,
-                ledgers = response.ledgers,
-            )
+    fun registerAccount(username: String, email: String, password: String) {
+        viewModelScope.launch {
+            _accountUiState.value = AccountUiState(loading = true)
+            runCatching {
+                val response = repository.register(username.trim(), email.trim(), password, modelSettings.value)
+                handleAuthResponse(response)
+            }.onFailure { throwable ->
+                _accountUiState.value = AccountUiState(error = throwable.toReadableMessage())
+            }
         }
+    }
+
+    fun loginAccount(identifier: String, password: String) {
+        viewModelScope.launch {
+            _accountUiState.value = AccountUiState(loading = true)
+            runCatching {
+                val response = repository.login(identifier.trim(), password, modelSettings.value)
+                handleAuthResponse(response)
+            }.onFailure { throwable ->
+                _accountUiState.value = AccountUiState(error = throwable.toReadableMessage())
+            }
+        }
+    }
+
+    fun logoutAccount() {
+        viewModelScope.launch {
+            val current = localStore.getAuthState()
+            runCatching {
+                if (current.refreshToken.isNotBlank()) {
+                    repository.logout(current.refreshToken, modelSettings.value)
+                }
+            }
+            localStore.clearAuthSession()
+            _accountUiState.value = AccountUiState(notice = "已退出登录，本机缓存会保留为只读。")
+        }
+    }
+
+    fun forgotPassword(email: String) {
+        viewModelScope.launch {
+            _accountUiState.value = _accountUiState.value.copy(loading = true, error = null, notice = "")
+            runCatching {
+                repository.forgotPassword(email.trim(), modelSettings.value)
+            }.onSuccess { response ->
+                val devToken = response.devResetToken?.takeIf { it.isNotBlank() }
+                _accountUiState.value = AccountUiState(
+                    notice = if (devToken == null) response.message else "${response.message} 开发重置 Token：$devToken",
+                )
+            }.onFailure { throwable ->
+                _accountUiState.value = AccountUiState(error = throwable.toReadableMessage())
+            }
+        }
+    }
+
+    fun resetPassword(token: String, newPassword: String) {
+        viewModelScope.launch {
+            _accountUiState.value = _accountUiState.value.copy(loading = true, error = null, notice = "")
+            runCatching {
+                repository.resetPassword(token.trim(), newPassword, modelSettings.value)
+            }.onSuccess {
+                _accountUiState.value = AccountUiState(notice = "密码已重置，请使用新密码登录。")
+            }.onFailure { throwable ->
+                _accountUiState.value = AccountUiState(error = throwable.toReadableMessage())
+            }
+        }
+    }
+
+    fun changePassword(oldPassword: String, newPassword: String) {
+        viewModelScope.launch {
+            _accountUiState.value = _accountUiState.value.copy(loading = true, error = null, notice = "")
+            runCatching {
+                authorizedCall { token ->
+                    repository.changePassword(oldPassword, newPassword, modelSettings.value, token)
+                }
+                localStore.clearAuthSession()
+            }.onSuccess {
+                _accountUiState.value = AccountUiState(notice = "密码已修改，请重新登录。")
+            }.onFailure { throwable ->
+                _accountUiState.value = AccountUiState(error = throwable.toReadableMessage())
+            }
+        }
+    }
+
+    fun resolvePendingSync(uploadLocal: Boolean) {
+        viewModelScope.launch {
+            val current = localStore.getAuthState()
+            val userId = current.user?.id.orEmpty()
+            if (!current.isLoggedIn || userId.isBlank()) {
+                _accountUiState.value = AccountUiState(error = "请先登录。")
+                return@launch
+            }
+            _accountUiState.value = _accountUiState.value.copy(loading = true, error = null)
+            runCatching {
+                authorizedCall { token ->
+                    if (uploadLocal) {
+                        val (schedules, ledgers) = localStore.getStructuredCacheSnapshot()
+                        val response = repository.importSync(schedules, ledgers, modelSettings.value, token)
+                        localStore.replaceStructuredCache(response.schedules, response.ledgers, ownerId = userId)
+                    } else {
+                        localStore.clearStructuredCache(ownerId = userId)
+                        syncStructuredCache(modelSettings.value, token, userId)
+                    }
+                }
+            }.onSuccess {
+                _accountUiState.value = AccountUiState(notice = if (uploadLocal) "本机数据已上传并同步。" else "已切换为云端数据。")
+            }.onFailure { throwable ->
+                _accountUiState.value = AccountUiState(error = throwable.toReadableMessage(), pendingSyncUserId = userId)
+            }
+        }
+    }
+
+    private suspend fun handleAuthResponse(response: AuthResponse) {
+        val before = localStore.getAuthState()
+        val (schedules, ledgers) = localStore.getStructuredCacheSnapshot()
+        localStore.saveAuthSession(response)
+        val hasLocalStructuredCache = schedules.isNotEmpty() || ledgers.isNotEmpty()
+        val shouldChoose = hasLocalStructuredCache && before.structuredCacheOwnerId != response.user.id
+        if (shouldChoose) {
+            _accountUiState.value = AccountUiState(
+                notice = "登录成功。请选择如何处理本机已有的日程和记账缓存。",
+                pendingSyncUserId = response.user.id,
+            )
+            return
+        }
+        syncStructuredCache(modelSettings.value, response.accessToken, response.user.id)
+        _accountUiState.value = AccountUiState(notice = "登录成功，数据已同步。")
+    }
+
+    private suspend fun syncStoredSessionSafely() {
+        runCatching {
+            authorizedCall { token ->
+                val ownerId = localStore.getAuthState().user?.id.orEmpty()
+                syncStructuredCache(modelSettings.value, token, ownerId)
+            }
+        }.onFailure { throwable ->
+            if (throwable is HttpException && throwable.code() == 401) {
+                localStore.clearAuthSession()
+                _accountUiState.value = AccountUiState(error = "登录状态已过期，请重新登录。")
+            } else {
+                _accountUiState.value = AccountUiState(error = "暂时无法同步云端数据，本机缓存仍可查看。")
+            }
+        }
+    }
+
+    private suspend fun <T> authorizedCall(block: suspend (String) -> T): T {
+        val current = localStore.getAuthState()
+        if (!current.isLoggedIn) {
+            throw IllegalStateException("请先在“我的”里登录。")
+        }
+        return try {
+            block(current.accessToken)
+        } catch (throwable: HttpException) {
+            if (throwable.code() != 401 || current.refreshToken.isBlank()) {
+                throw throwable
+            }
+            runCatching {
+                repository.refresh(current.refreshToken, modelSettings.value)
+            }.onFailure {
+                localStore.clearAuthSession()
+            }.getOrThrow().let { refreshed ->
+                localStore.saveAuthSession(refreshed)
+                try {
+                    block(refreshed.accessToken)
+                } catch (second: HttpException) {
+                    if (second.code() == 401) {
+                        localStore.clearAuthSession()
+                    }
+                    throw second
+                }
+            }
+        }
+    }
+
+    private suspend fun syncStructuredCache(settings: ModelSettings, accessToken: String, ownerId: String) {
+        val response = repository.syncData(settings, accessToken)
+        localStore.replaceStructuredCache(
+            schedules = response.schedules,
+            ledgers = response.ledgers,
+            ownerId = ownerId,
+        )
     }
 
     private suspend fun applyActions(
@@ -485,6 +695,16 @@ private fun List<ChatMessagePayload>.takeForSummary(): List<ChatMessagePayload> 
 }
 
 private fun Throwable.toReadableMessage(): String {
+    if (this is HttpException) {
+        return when (code()) {
+            400, 401, 403, 404, 409 -> response()?.errorBody()?.string()
+                ?.substringAfter("\"detail\":\"", "")
+                ?.substringBefore("\"", "")
+                ?.ifBlank { message() }
+                ?: message()
+            else -> "请求失败（HTTP ${code()}），请稍后重试。"
+        }
+    }
     val raw = message.orEmpty()
     val lower = raw.lowercase()
     return when {

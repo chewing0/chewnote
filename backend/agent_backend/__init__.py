@@ -1,1 +1,1 @@
-from .api import app
+"""Agent backend package."""

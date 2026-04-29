@@ -166,18 +166,18 @@ fun LedgerScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 12.dp),
+            contentPadding = PaddingValues(bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
                 EditorialReveal(delayMillis = 0) {
-                    EditorialPanel(modifier = Modifier.padding(top = 16.dp)) {
+                    EditorialPanel(modifier = Modifier.padding(top = 12.dp)) {
                         EditorialTitle(
                             title = "记账统计",
                             subtitle = "把本期变化、结构和重点支出放到一个页面里看清楚",
                             showSubtitle = false,
-                            modifier = Modifier.padding(14.dp),
+                            modifier = Modifier.padding(12.dp),
                             trailing = {
                                 TonePill(text = period.displayName(), tone = AccentVermilion)
                             },
@@ -232,8 +232,8 @@ fun LedgerScreen(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFFF8EEE1)),
                     ) {
                         Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
                         ) {
                             Text(
                                 text = "刚刚新增",
@@ -357,7 +357,7 @@ private fun PeriodAnchorSelector(
     val isCurrentPeriod = normalizeAnchor(period, anchorDate) == currentAnchor(period)
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFAF2)),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(10.dp),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = Brush.linearGradient(
                 listOf(Color(0xFFEADCC8), Color(0xFFFFF5E5)),
@@ -623,7 +623,7 @@ private fun SummaryCard(summaryData: SummaryCardData) {
                         stiffness = 760f,
                     )
                 )
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -693,7 +693,7 @@ private fun InsightSection(
                         stiffness = 740f,
                     )
                 )
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
@@ -805,7 +805,7 @@ private fun InsightMiniCard(
     Surface(
         modifier = modifier.heightIn(min = 132.dp),
         color = Color(0xFFFFFAF2),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         tonalElevation = 1.dp,
         shadowElevation = 0.5.dp,
     ) {
@@ -858,7 +858,7 @@ private fun CategorySection(
                         stiffness = 750f,
                     )
                 )
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -906,7 +906,7 @@ private fun TrendSection(
                         stiffness = 750f,
                     )
                 )
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
@@ -948,7 +948,7 @@ private fun WatchListSection(
                         stiffness = 760f,
                     )
                 )
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(

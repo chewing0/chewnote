@@ -30,8 +30,32 @@ class SecureSettingsStore(context: Context) {
         preferences.edit().putString(KEY_API_KEY, value).apply()
     }
 
+    fun getAccessToken(): String {
+        return preferences.getString(KEY_ACCESS_TOKEN, "") ?: ""
+    }
+
+    fun getRefreshToken(): String {
+        return preferences.getString(KEY_REFRESH_TOKEN, "") ?: ""
+    }
+
+    fun saveAuthTokens(accessToken: String, refreshToken: String) {
+        preferences.edit()
+            .putString(KEY_ACCESS_TOKEN, accessToken)
+            .putString(KEY_REFRESH_TOKEN, refreshToken)
+            .apply()
+    }
+
+    fun clearAuthTokens() {
+        preferences.edit()
+            .remove(KEY_ACCESS_TOKEN)
+            .remove(KEY_REFRESH_TOKEN)
+            .apply()
+    }
+
     companion object {
         private const val FILE_NAME = "secure_settings"
         private const val KEY_API_KEY = "api_key"
+        private const val KEY_ACCESS_TOKEN = "access_token"
+        private const val KEY_REFRESH_TOKEN = "refresh_token"
     }
 }

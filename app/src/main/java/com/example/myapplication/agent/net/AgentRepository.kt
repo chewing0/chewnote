@@ -2,16 +2,64 @@ package com.example.myapplication.agent.net
 
 import com.example.myapplication.agent.model.AgentRequest
 import com.example.myapplication.agent.model.AgentResponse
+import com.example.myapplication.agent.model.AuthResponse
+import com.example.myapplication.agent.model.ChangePasswordRequest
 import com.example.myapplication.agent.model.ChatMessagePayload
 import com.example.myapplication.agent.model.ConnectionTestResult
 import com.example.myapplication.agent.model.ConnectionTestStatus
+import com.example.myapplication.agent.model.ForgotPasswordRequest
+import com.example.myapplication.agent.model.ForgotPasswordResponse
 import com.example.myapplication.agent.model.LedgerEntry
+import com.example.myapplication.agent.model.LoginRequest
 import com.example.myapplication.agent.model.ModelConfigPayload
 import com.example.myapplication.agent.model.ModelSettings
+import com.example.myapplication.agent.model.RefreshTokenRequest
+import com.example.myapplication.agent.model.RegisterRequest
+import com.example.myapplication.agent.model.ResetPasswordRequest
 import com.example.myapplication.agent.model.ScheduleItem
+import com.example.myapplication.agent.model.SyncImportRequest
 import com.example.myapplication.agent.model.SyncResponse
 
 class AgentRepository {
+    suspend fun register(
+        username: String,
+        email: String,
+        password: String,
+        settings: ModelSettings,
+    ): AuthResponse {
+        return NetworkModule.createAgentApi(settings.backendUrl).register(RegisterRequest(username, email, password))
+    }
+
+    suspend fun login(identifier: String, password: String, settings: ModelSettings): AuthResponse {
+        return NetworkModule.createAgentApi(settings.backendUrl).login(LoginRequest(identifier, password))
+    }
+
+    suspend fun refresh(refreshToken: String, settings: ModelSettings): AuthResponse {
+        return NetworkModule.createAgentApi(settings.backendUrl).refresh(RefreshTokenRequest(refreshToken))
+    }
+
+    suspend fun logout(refreshToken: String, settings: ModelSettings) {
+        NetworkModule.createAgentApi(settings.backendUrl).logout(RefreshTokenRequest(refreshToken))
+    }
+
+    suspend fun forgotPassword(email: String, settings: ModelSettings): ForgotPasswordResponse {
+        return NetworkModule.createAgentApi(settings.backendUrl).forgotPassword(ForgotPasswordRequest(email))
+    }
+
+    suspend fun resetPassword(token: String, newPassword: String, settings: ModelSettings) {
+        NetworkModule.createAgentApi(settings.backendUrl).resetPassword(ResetPasswordRequest(token, newPassword))
+    }
+
+    suspend fun changePassword(
+        oldPassword: String,
+        newPassword: String,
+        settings: ModelSettings,
+        accessToken: String,
+    ) {
+        NetworkModule.createAgentApi(settings.backendUrl)
+            .changePassword(bearer(accessToken), ChangePasswordRequest(oldPassword, newPassword))
+    }
+
     suspend fun processNaturalLanguage(
         text: String,
         sessionId: String,
@@ -19,10 +67,12 @@ class AgentRepository {
         contextSummary: String,
         summaryHistory: List<ChatMessagePayload>,
         settings: ModelSettings,
+        accessToken: String,
     ): AgentResponse {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
         val modelConfig = settings.toModelConfigOrNull()
         return api.processText(
+            bearer(accessToken),
             AgentRequest(
                 text = text.trim(),
                 sessionId = sessionId,
@@ -34,32 +84,41 @@ class AgentRepository {
         )
     }
 
-    suspend fun syncData(settings: ModelSettings): SyncResponse {
-        val api = NetworkModule.createAgentApi(settings.backendUrl)
-        return api.sync()
+    suspend fun syncData(settings: ModelSettings, accessToken: String): SyncResponse {
+        return NetworkModule.createAgentApi(settings.backendUrl).sync(bearer(accessToken))
     }
 
-    suspend fun updateLedger(entry: LedgerEntry, settings: ModelSettings): LedgerEntry {
-        val api = NetworkModule.createAgentApi(settings.backendUrl)
-        return api.updateLedger(entry.id, entry)
+    suspend fun importSync(
+        schedules: List<ScheduleItem>,
+        ledgers: List<LedgerEntry>,
+        settings: ModelSettings,
+        accessToken: String,
+    ): SyncResponse {
+        return NetworkModule.createAgentApi(settings.backendUrl)
+            .importSync(bearer(accessToken), SyncImportRequest(schedules, ledgers))
     }
 
-    suspend fun deleteLedger(entryId: String, settings: ModelSettings) {
+    suspend fun updateLedger(entry: LedgerEntry, settings: ModelSettings, accessToken: String): LedgerEntry {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
-        api.deleteLedger(entryId)
+        return api.updateLedger(bearer(accessToken), entry.id, entry)
     }
 
-    suspend fun updateSchedule(item: ScheduleItem, settings: ModelSettings): ScheduleItem {
+    suspend fun deleteLedger(entryId: String, settings: ModelSettings, accessToken: String) {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
-        return api.updateSchedule(item.id, item)
+        api.deleteLedger(bearer(accessToken), entryId)
     }
 
-    suspend fun deleteSchedule(itemId: String, settings: ModelSettings) {
+    suspend fun updateSchedule(item: ScheduleItem, settings: ModelSettings, accessToken: String): ScheduleItem {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
-        api.deleteSchedule(itemId)
+        return api.updateSchedule(bearer(accessToken), item.id, item)
     }
 
-    suspend fun testConnection(settings: ModelSettings): ConnectionTestResult {
+    suspend fun deleteSchedule(itemId: String, settings: ModelSettings, accessToken: String) {
+        val api = NetworkModule.createAgentApi(settings.backendUrl)
+        api.deleteSchedule(bearer(accessToken), itemId)
+    }
+
+    suspend fun testConnection(settings: ModelSettings, accessToken: String = ""): ConnectionTestResult {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
         val modelConfig = settings.toModelConfigOrNull()
 
@@ -79,8 +138,17 @@ class AgentRepository {
             )
         }
 
+        if (accessToken.isBlank()) {
+            return ConnectionTestResult(
+                status = ConnectionTestStatus.SUCCESS,
+                title = "后端可达",
+                detail = "后端服务正常。登录后可以继续验证模型和 Agent 工具调用。",
+            )
+        }
+
         val probe = runCatching {
             api.processText(
+                bearer(accessToken),
                 AgentRequest(
                     text = "连接测试。请只回复“测试成功”，不要调用任何工具。",
                     sessionId = "connection-test",
@@ -101,6 +169,8 @@ class AgentRepository {
         return interpretProbeReply(probe.reply)
     }
 }
+
+private fun bearer(token: String): String = "Bearer $token"
 
 private fun interpretProbeReply(reply: String): ConnectionTestResult {
     val text = reply.trim()

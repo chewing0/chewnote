@@ -2,10 +2,6 @@ package com.example.myapplication.ui.design
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -37,16 +33,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.myapplication.ui.theme.AccentMoss
+import com.example.myapplication.ui.theme.AccentVermilion
 import com.example.myapplication.ui.theme.CanvasIvory
 import com.example.myapplication.ui.theme.CanvasWarm
 import com.example.myapplication.ui.theme.InkDeep
 import com.example.myapplication.ui.theme.InkSoft
 import com.example.myapplication.ui.theme.LineSoft
+import com.example.myapplication.ui.theme.PaperCard
 import kotlinx.coroutines.delay
 
 @Composable
@@ -54,58 +52,38 @@ fun EditorialBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val drift = rememberInfiniteTransition(label = "editorial-bg")
-    val topLeftShift by drift.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 5200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "top-left-shift"
-    )
-    val rightShift by drift.animateFloat(
-        initialValue = 0.9f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 6100, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "right-shift"
-    )
-    val bottomShift by drift.animateFloat(
-        initialValue = 0.94f,
-        targetValue = 1.06f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 7200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "bottom-shift"
-    )
-
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(CanvasIvory, CanvasWarm)
-                )
-            )
+            .background(CanvasIvory)
             .drawBehind {
-                drawCircle(
-                    color = Color(0x33FFFFFF),
-                    radius = size.minDimension * 0.38f,
-                    center = Offset(size.width * 0.12f * topLeftShift, size.height * 0.08f * topLeftShift)
+                val rightSlab = Path().apply {
+                    moveTo(size.width * 0.70f, 0f)
+                    lineTo(size.width, 0f)
+                    lineTo(size.width * 0.78f, size.height)
+                    lineTo(size.width * 0.48f, size.height)
+                    close()
+                }
+                val leftWedge = Path().apply {
+                    moveTo(0f, size.height * 0.10f)
+                    lineTo(size.width * 0.26f, 0f)
+                    lineTo(size.width * 0.14f, size.height * 0.34f)
+                    lineTo(0f, size.height * 0.44f)
+                    close()
+                }
+                drawPath(rightSlab, CanvasWarm.copy(alpha = 0.42f))
+                drawPath(leftWedge, AccentVermilion.copy(alpha = 0.06f))
+                drawLine(
+                    color = AccentVermilion.copy(alpha = 0.24f),
+                    start = Offset(size.width * 0.08f, size.height * 0.05f),
+                    end = Offset(size.width * 0.92f, size.height * 0.18f),
+                    strokeWidth = 3f,
                 )
-                drawCircle(
-                    color = Color(0x22B36A4A),
-                    radius = size.minDimension * 0.34f,
-                    center = Offset(size.width * 0.9f, size.height * 0.25f * rightShift)
-                )
-                drawCircle(
-                    color = Color(0x1A1F2A44),
-                    radius = size.minDimension * 0.42f,
-                    center = Offset(size.width * 0.78f * bottomShift, size.height * 0.9f)
+                drawLine(
+                    color = AccentMoss.copy(alpha = 0.20f),
+                    start = Offset(size.width * 0.14f, size.height),
+                    end = Offset(size.width * 0.86f, 0f),
+                    strokeWidth = 1.4f,
                 )
             }
     ) {
@@ -126,11 +104,10 @@ fun EditorialTitle(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineMedium,
-                fontFamily = FontFamily.Serif,
                 color = InkDeep
             )
             if (subtitle.isNotBlank() && showSubtitle) {
@@ -151,11 +128,25 @@ fun EditorialPanel(
     content: @Composable () -> Unit
 ) {
     Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xF4FFF8EE)),
-        border = androidx.compose.foundation.BorderStroke(1.dp, LineSoft),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = modifier.drawBehind {
+            val strokeWidth = 1.dp.toPx()
+            drawLine(
+                color = AccentVermilion.copy(alpha = 0.36f),
+                start = Offset(0f, strokeWidth),
+                end = Offset(size.width * 0.38f, strokeWidth),
+                strokeWidth = strokeWidth,
+            )
+            drawLine(
+                color = AccentMoss.copy(alpha = 0.16f),
+                start = Offset(0f, size.height - strokeWidth),
+                end = Offset(size.width, size.height - strokeWidth),
+                strokeWidth = strokeWidth,
+            )
+        },
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = PaperCard),
+        border = androidx.compose.foundation.BorderStroke(1.dp, LineSoft.copy(alpha = 0.38f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         content()
     }
@@ -170,13 +161,13 @@ fun TonePill(
     Surface(
         modifier = modifier,
         color = tone.copy(alpha = 0.16f),
-        shape = RoundedCornerShape(50)
+        shape = RoundedCornerShape(6.dp)
     ) {
         Text(
             text = text,
             modifier = Modifier
-                .border(1.dp, tone.copy(alpha = 0.34f), RoundedCornerShape(50))
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .border(1.dp, tone.copy(alpha = 0.34f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
             color = tone,
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodySmall

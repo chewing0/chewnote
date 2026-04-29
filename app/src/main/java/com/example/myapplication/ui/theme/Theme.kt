@@ -1,10 +1,13 @@
 package com.example.myapplication.ui.theme
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.dp
 
 private val DarkColorScheme = darkColorScheme(
     primary = CanvasWarm,
@@ -20,9 +23,9 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = InkDeep,
+    primary = AccentVermilion,
     secondary = AccentMoss,
-    tertiary = AccentVermilion,
+    tertiary = Charcoal,
     background = CanvasIvory,
     surface = PaperCard,
     onPrimary = CanvasIvory,
@@ -30,7 +33,16 @@ private val LightColorScheme = lightColorScheme(
     onTertiary = CanvasIvory,
     onBackground = InkDeep,
     onSurface = InkDeep,
-    outline = LineSoft
+    outline = LineSoft,
+    outlineVariant = Color(0xFFE8DDCB),
+)
+
+private val AppShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(6.dp),
+    medium = RoundedCornerShape(8.dp),
+    large = RoundedCornerShape(10.dp),
+    extraLarge = RoundedCornerShape(12.dp),
 )
 
 @Composable
@@ -43,6 +55,7 @@ fun MyApplicationTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = AppShapes,
         content = content
     )
 }

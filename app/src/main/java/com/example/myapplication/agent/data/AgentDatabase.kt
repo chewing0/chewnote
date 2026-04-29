@@ -40,6 +40,9 @@ interface ScheduleDao {
     @Query("SELECT * FROM schedule_items ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<ScheduleItem>>
 
+    @Query("SELECT * FROM schedule_items")
+    suspend fun getAll(): List<ScheduleItem>
+
     @Upsert
     suspend fun upsert(entry: ScheduleItem)
 

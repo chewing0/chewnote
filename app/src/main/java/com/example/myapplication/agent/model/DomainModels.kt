@@ -140,8 +140,76 @@ data class SyncResponse(
     val ledgers: List<LedgerEntry> = emptyList(),
 )
 
+data class SyncImportRequest(
+    val schedules: List<ScheduleItem> = emptyList(),
+    val ledgers: List<LedgerEntry> = emptyList(),
+)
+
 data class DeleteResponse(
     val deleted: Int = 0,
+)
+
+data class AuthUser(
+    val id: String,
+    val username: String,
+    val email: String,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+)
+
+data class AuthState(
+    val user: AuthUser? = null,
+    val accessToken: String = "",
+    val refreshToken: String = "",
+    val structuredCacheOwnerId: String = "",
+) {
+    val isLoggedIn: Boolean
+        get() = user != null && accessToken.isNotBlank()
+}
+
+data class AuthResponse(
+    val user: AuthUser,
+    val accessToken: String,
+    val refreshToken: String,
+    val expiresIn: Int = 0,
+)
+
+data class RegisterRequest(
+    val username: String,
+    val email: String,
+    val password: String,
+)
+
+data class LoginRequest(
+    val identifier: String,
+    val password: String,
+)
+
+data class RefreshTokenRequest(
+    val refreshToken: String,
+)
+
+data class ForgotPasswordRequest(
+    val email: String,
+)
+
+data class ForgotPasswordResponse(
+    val message: String,
+    val devResetToken: String? = null,
+)
+
+data class ResetPasswordRequest(
+    val token: String,
+    val newPassword: String,
+)
+
+data class ChangePasswordRequest(
+    val oldPassword: String,
+    val newPassword: String,
+)
+
+data class SimpleStatusResponse(
+    val status: String = "ok",
 )
 
 enum class ConnectionTestStatus {

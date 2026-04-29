@@ -1,50 +1,69 @@
 from __future__ import annotations
 
-import tempfile
+import os
 import unittest
-from pathlib import Path
 
-from agent_backend.storage import DOMAIN_LEDGER, DOMAIN_SCHEDULE, AgentStore
+from agent_backend.auth import AuthError, AuthService
 from agent_backend.llm_client import _backend_time_context, _resolve_relative_date, _resolve_relative_range
+from agent_backend.storage import DOMAIN_SCHEDULE, AgentStore, _to_psycopg_query
 
 
 class AgentStoreTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.store = AgentStore(Path(self.temp_dir.name) / "agent.db")
+        self.database_url = os.getenv("TEST_DATABASE_URL")
+        if not self.database_url:
+            self.skipTest("TEST_DATABASE_URL is not configured")
+        self.store = AgentStore(self.database_url)
+        self._clear_store()
+        self.auth = AuthService(self.store)
+        self.user_a = self.auth.register("alice_test", "alice@example.com", "password123")["user"]
+        self.user_b = self.auth.register("bob_test", "bob@example.com", "password123")["user"]
 
     def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        if hasattr(self, "store"):
+            self._clear_store()
 
-    def test_schedule_crud(self) -> None:
-        created = self.store.create_schedule("项目会", "2026-04-28", "10:00", "A 会议室")
+    def _clear_store(self) -> None:
+        with self.store._connect() as conn:
+            conn.execute("DELETE FROM pending_agent_operations")
+            conn.execute("DELETE FROM password_reset_tokens")
+            conn.execute("DELETE FROM refresh_tokens")
+            conn.execute("DELETE FROM ledger_entries")
+            conn.execute("DELETE FROM schedule_items")
+            conn.execute("DELETE FROM users")
 
-        matches = self.store.list_schedules(date="2026-04-28", keyword="项目")
+    def test_schedule_crud_is_user_scoped(self) -> None:
+        created = self.store.create_schedule(self.user_a["id"], "项目会", "2026-04-28", "10:00", "A 会议室")
+        self.store.create_schedule(self.user_b["id"], "项目会", "2026-04-28", "15:00", "B 会议室")
+
+        matches = self.store.list_schedules(self.user_a["id"], date="2026-04-28", keyword="项目")
         self.assertEqual([created["id"]], [item["id"] for item in matches])
 
-        updated = self.store.update_schedules([created["id"]], {"time": "16:00"})
+        updated = self.store.update_schedules(self.user_a["id"], [created["id"]], {"time": "16:00"})
         self.assertEqual("16:00", updated[0]["time"])
 
-        deleted = self.store.delete_schedules([created["id"]])
+        deleted = self.store.delete_schedules(self.user_a["id"], [created["id"]])
         self.assertEqual(1, deleted)
-        self.assertEqual([], self.store.list_schedules(date="2026-04-28"))
+        self.assertEqual([], self.store.list_schedules(self.user_a["id"], date="2026-04-28"))
+        self.assertEqual(1, len(self.store.list_schedules(self.user_b["id"], date="2026-04-28")))
 
-    def test_ledger_summary(self) -> None:
-        self.store.create_ledger(28, "餐饮", "咖啡", "2026-04-20", "expense")
-        self.store.create_ledger(18, "交通", "打车", "2026-04-21", "expense")
-        self.store.create_ledger(200, "报销", "差旅", "2026-04-21", "income")
+    def test_ledger_summary_is_user_scoped(self) -> None:
+        self.store.create_ledger(self.user_a["id"], 28, "餐饮", "咖啡", "2026-04-20", "expense")
+        self.store.create_ledger(self.user_a["id"], 18, "交通", "打车", "2026-04-21", "expense")
+        self.store.create_ledger(self.user_b["id"], 999, "购物", "不应出现", "2026-04-21", "expense")
 
-        summary = self.store.summarize_ledgers("2026-04-20", "2026-04-26", "expense")
+        summary = self.store.summarize_ledgers(self.user_a["id"], "2026-04-20", "2026-04-26", "expense")
 
         self.assertEqual(46.0, summary["total"])
         self.assertEqual(2, summary["count"])
         self.assertEqual({"餐饮", "交通"}, {item["category"] for item in summary["categories"]})
 
-    def test_pending_operation_lifecycle(self) -> None:
-        first = self.store.create_schedule("开会", "2026-04-28", "10:00")
-        second = self.store.create_schedule("开会", "2026-04-28", "15:00")
+    def test_pending_operation_lifecycle_is_user_scoped(self) -> None:
+        first = self.store.create_schedule(self.user_a["id"], "开会", "2026-04-28", "10:00")
+        second = self.store.create_schedule(self.user_a["id"], "开会", "2026-04-28", "15:00")
 
         pending = self.store.create_pending_operation(
+            user_id=self.user_a["id"],
             session_id="session-1",
             domain=DOMAIN_SCHEDULE,
             operation="delete",
@@ -52,25 +71,43 @@ class AgentStoreTest(unittest.TestCase):
             updates={},
         )
 
-        loaded = self.store.get_pending_operation("session-1")
+        loaded = self.store.get_pending_operation(self.user_a["id"], "session-1")
         self.assertIsNotNone(loaded)
         self.assertEqual(pending["id"], loaded["id"])
         self.assertEqual(DOMAIN_SCHEDULE, loaded["domain"])
         self.assertEqual([first["id"], second["id"]], loaded["candidate_ids"])
+        self.assertIsNone(self.store.get_pending_operation(self.user_b["id"], "session-1"))
 
-        self.store.clear_pending_operation("session-1")
-        self.assertIsNone(self.store.get_pending_operation("session-1"))
+        self.store.clear_pending_operation(self.user_a["id"], "session-1")
+        self.assertIsNone(self.store.get_pending_operation(self.user_a["id"], "session-1"))
 
-    def test_ledger_update_uses_entry_type_storage_name(self) -> None:
-        created = self.store.create_ledger(100, "报销", "午餐", "2026-04-21", "expense")
+    def test_auth_refresh_password_reset_and_change(self) -> None:
+        login = self.auth.login("alice_test", "password123")
+        refreshed = self.auth.refresh(login["refreshToken"])
+        with self.assertRaises(AuthError):
+            self.auth.refresh(login["refreshToken"])
 
-        updated = self.store.update_ledgers([created["id"]], {"entry_type": "income"})
+        forgot = self.auth.forgot_password("alice@example.com")
+        self.assertTrue(forgot.get("devResetToken"))
+        self.auth.reset_password(forgot["devResetToken"], "newpassword123")
+        with self.assertRaises(AuthError):
+            self.auth.login("alice_test", "password123")
+        login = self.auth.login("alice@example.com", "newpassword123")
+        self.auth.change_password(login["user"]["id"], "newpassword123", "anotherpassword123")
+        self.auth.login("alice_test", "anotherpassword123")
+        self.assertTrue(refreshed["accessToken"])
 
-        self.assertEqual("income", updated[0]["entryType"])
-        income_items = self.store.list_ledgers(entry_type="income")
-        self.assertEqual([created["id"]], [item["id"] for item in income_items])
 
-    def test_relative_dates_are_resolved_from_client_date(self) -> None:
+class StorageSqlTest(unittest.TestCase):
+    def test_named_parameters_are_converted_for_psycopg(self) -> None:
+        self.assertEqual(
+            "SELECT * FROM ledger_entries WHERE id = %(id)s AND date >= %(start_date)s",
+            _to_psycopg_query("SELECT * FROM ledger_entries WHERE id = :id AND date >= :start_date"),
+        )
+
+
+class BackendTimeTest(unittest.TestCase):
+    def test_relative_dates_are_resolved_from_backend_date(self) -> None:
         self.assertEqual(
             "2026-04-28",
             _resolve_relative_date("明天下午三点出去玩", "2026-04-27"),

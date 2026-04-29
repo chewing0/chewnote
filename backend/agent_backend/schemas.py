@@ -73,6 +73,60 @@ class SyncResponse(BaseModel):
     ledgers: list[LedgerRecord] = Field(default_factory=list)
 
 
+class SyncImportRequest(BaseModel):
+    schedules: list[ScheduleRecord] = Field(default_factory=list)
+    ledgers: list[LedgerRecord] = Field(default_factory=list)
+
+
+class AuthUser(BaseModel):
+    id: str
+    username: str
+    email: str
+    createdAt: int = 0
+    updatedAt: int = 0
+
+
+class AuthResponse(BaseModel):
+    user: AuthUser
+    accessToken: str
+    refreshToken: str
+    expiresIn: int
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    identifier: str
+    password: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refreshToken: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+    devResetToken: str | None = None
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    newPassword: str
+
+
+class ChangePasswordRequest(BaseModel):
+    oldPassword: str
+    newPassword: str
+
+
 class ScheduleToolInput(BaseModel):
     title: str = Field(description="日程标题")
     date: str = Field(description="日期，格式 YYYY-MM-DD")

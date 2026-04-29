@@ -132,8 +132,8 @@ fun ScheduleScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             EditorialReveal(delayMillis = 0) {
                     EditorialPanel(modifier = Modifier.fillMaxWidth()) {
@@ -141,7 +141,7 @@ fun ScheduleScreen(
                             title = "日程",
                             subtitle = "今天安排、最近新增和全部回看都放在这里",
                             showSubtitle = false,
-                            modifier = Modifier.padding(14.dp),
+                            modifier = Modifier.padding(12.dp),
                             trailing = {
                                 TonePill(text = "${schedules.size} 项", tone = AccentVermilion)
                         },
@@ -173,7 +173,7 @@ fun ScheduleScreen(
                     if (currentTab == ScheduleTab.CALENDAR) {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             if (highlightedSchedules.isNotEmpty()) {
                                 item {
@@ -255,7 +255,7 @@ fun ScheduleScreen(
                                     stiffness = 760f,
                                 )
                             ),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
                                 text = "全部安排 (${filteredAllSchedules.size})",
@@ -353,7 +353,7 @@ private fun RecentScheduleBatchCard(items: List<ScheduleItem>) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
@@ -460,7 +460,7 @@ private fun ScheduleEmptyState(
                         stiffness = 760f,
                     )
                 )
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(text = title, style = MaterialTheme.typography.titleMedium)
@@ -505,7 +505,7 @@ private fun ScheduleAgendaCard(
                         stiffness = 760f,
                     )
                 )
-                .padding(14.dp),
+                .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(
@@ -563,7 +563,7 @@ private fun ScheduleItemCard(
                         stiffness = 760f,
                     )
                 )
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(text = item.title, style = MaterialTheme.typography.titleMedium, color = InkDeep)

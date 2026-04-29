@@ -8,6 +8,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.withTransaction
 import com.example.myapplication.agent.model.ActionReceipt
+import com.example.myapplication.agent.model.AuthResponse
+import com.example.myapplication.agent.model.AuthState
+import com.example.myapplication.agent.model.AuthUser
 import com.example.myapplication.agent.model.ChatMessage
 import com.example.myapplication.agent.model.ChatMessageKind
 import com.example.myapplication.agent.model.ContextSnapshot
@@ -41,6 +44,8 @@ class LocalStore(private val context: Context) {
     private val contextSnapshotKey = stringPreferencesKey("context_snapshot")
     private val sessionIdKey = stringPreferencesKey("session_id")
     private val modelSettingsKey = stringPreferencesKey("model_settings")
+    private val authUserKey = stringPreferencesKey("auth_user")
+    private val structuredCacheOwnerIdKey = stringPreferencesKey("structured_cache_owner_id")
     private val roomMigrationKey = booleanPreferencesKey("structured_room_migration_v1")
     private val ledgerCategoryMigrationKey = booleanPreferencesKey("ledger_category_migration_v1")
     private val backendStorageMigrationKey = booleanPreferencesKey("backend_storage_migration_v1")
@@ -114,9 +119,32 @@ class LocalStore(private val context: Context) {
         }
     }
 
+    fun observeAuthState(): Flow<AuthState> {
+        return context.agentDataStore.data.map { prefs ->
+            val user = decodeObject<AuthUser>(prefs, authUserKey)
+            AuthState(
+                user = user,
+                accessToken = secureSettingsStore.getAccessToken(),
+                refreshToken = secureSettingsStore.getRefreshToken(),
+                structuredCacheOwnerId = prefs[structuredCacheOwnerIdKey].orEmpty(),
+            )
+        }
+    }
+
+    suspend fun getAuthState(): AuthState {
+        val prefs = context.agentDataStore.data.first()
+        return AuthState(
+            user = decodeObject<AuthUser>(prefs, authUserKey),
+            accessToken = secureSettingsStore.getAccessToken(),
+            refreshToken = secureSettingsStore.getRefreshToken(),
+            structuredCacheOwnerId = prefs[structuredCacheOwnerIdKey].orEmpty(),
+        )
+    }
+
     suspend fun replaceStructuredCache(
         schedules: List<ScheduleItem>,
         ledgers: List<LedgerEntry>,
+        ownerId: String? = null,
     ) {
         database.withTransaction {
             scheduleDao.deleteAll()
@@ -128,17 +156,43 @@ class LocalStore(private val context: Context) {
                 ledgerDao.upsertAll(ledgers.map(::normalizeLedgerEntry))
             }
         }
+        if (ownerId != null) {
+            saveStructuredCacheOwner(ownerId)
+        }
+    }
+
+    suspend fun getStructuredCacheSnapshot(): Pair<List<ScheduleItem>, List<LedgerEntry>> {
+        return scheduleDao.getAll() to ledgerDao.getAll()
+    }
+
+    suspend fun clearStructuredCache(ownerId: String? = null) {
+        replaceStructuredCache(emptyList(), emptyList(), ownerId)
+    }
+
+    suspend fun saveStructuredCacheOwner(ownerId: String) {
+        context.agentDataStore.edit { prefs ->
+            prefs[structuredCacheOwnerIdKey] = ownerId
+        }
+    }
+
+    suspend fun saveAuthSession(response: AuthResponse) {
+        secureSettingsStore.saveAuthTokens(response.accessToken, response.refreshToken)
+        context.agentDataStore.edit { prefs ->
+            prefs[authUserKey] = gson.toJson(response.user)
+        }
+    }
+
+    suspend fun clearAuthSession() {
+        secureSettingsStore.clearAuthTokens()
+        context.agentDataStore.edit { prefs ->
+            prefs.remove(authUserKey)
+        }
     }
 
     suspend fun migrateToBackendStorageCache() {
         val prefs = context.agentDataStore.data.first()
         if (prefs[backendStorageMigrationKey] == true) {
             return
-        }
-
-        database.withTransaction {
-            ledgerDao.deleteAll()
-            scheduleDao.deleteAll()
         }
 
         context.agentDataStore.edit { mutablePrefs ->

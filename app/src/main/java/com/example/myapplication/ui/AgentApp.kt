@@ -13,15 +13,17 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +31,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -55,13 +61,10 @@ import com.example.myapplication.agent.model.LedgerPeriod
 import com.example.myapplication.ui.design.EditorialBackground
 import com.example.myapplication.ui.screen.AgentHomeScreen
 import com.example.myapplication.ui.screen.LedgerScreen
+import com.example.myapplication.ui.screen.PendingScreen
 import com.example.myapplication.ui.screen.ScheduleScreen
 import com.example.myapplication.ui.screen.SettingsScreen
-import com.example.myapplication.ui.theme.AccentVermilion
-import com.example.myapplication.ui.theme.CanvasIvory
 import com.example.myapplication.ui.theme.InkDeep
-import com.example.myapplication.ui.theme.InkSoft
-import com.example.myapplication.ui.theme.LineSoft
 
 private data class NavItem(
     val route: String,
@@ -71,17 +74,17 @@ private data class NavItem(
 
 private object AgentRoutes {
     const val Agent = "agent"
-    const val Settings = "settings"
+    const val Pending = "pending"
+    const val Profile = "profile"
+    const val Schedule = "schedule"
+    const val Ledger = "ledger"
 
-    private const val ScheduleBase = "schedule"
-    private const val LedgerBase = "ledger"
-
-    const val SchedulePattern = "$ScheduleBase?targetDate={targetDate}&actionBatchId={actionBatchId}"
-    const val LedgerPattern = "$LedgerBase?period={period}&actionBatchId={actionBatchId}"
+    const val SchedulePattern = "$Schedule?targetDate={targetDate}&actionBatchId={actionBatchId}"
+    const val LedgerPattern = "$Ledger?period={period}&actionBatchId={actionBatchId}"
 
     fun schedule(targetDate: String? = null, actionBatchId: String? = null): String {
         return buildString {
-            append(ScheduleBase)
+            append(Schedule)
             append("?targetDate=")
             append(Uri.encode(targetDate ?: ""))
             append("&actionBatchId=")
@@ -91,7 +94,7 @@ private object AgentRoutes {
 
     fun ledger(period: LedgerPeriod = LedgerPeriod.MONTH, actionBatchId: String? = null): String {
         return buildString {
-            append(LedgerBase)
+            append(Ledger)
             append("?period=")
             append(Uri.encode(period.name))
             append("&actionBatchId=")
@@ -102,9 +105,113 @@ private object AgentRoutes {
     fun rootRouteOf(route: String?): String? {
         return when {
             route == null -> null
-            route.startsWith(ScheduleBase) -> ScheduleBase
-            route.startsWith(LedgerBase) -> LedgerBase
+            route.startsWith(Schedule) -> Schedule
+            route.startsWith(Ledger) -> Ledger
             else -> route
+        }
+    }
+
+    fun targetRouteOf(rootRoute: String): String {
+        return when (rootRoute) {
+            Schedule -> schedule()
+            Ledger -> ledger()
+            Agent -> Agent
+            Pending -> Pending
+            Profile -> Profile
+            else -> Agent
+        }
+    }
+}
+
+@Composable
+private fun ConstructivistBottomBar(
+    navItems: List<NavItem>,
+    selectedRoute: String?,
+    onNavigate: (String) -> Unit,
+) {
+    Surface(color = Color.Transparent) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 30.dp, vertical = 14.dp)
+                .fillMaxWidth()
+                .height(66.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFFF8F8F8), Color(0xFFF0F0F0)),
+                    ),
+                    shape = RoundedCornerShape(34.dp),
+                )
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            navItems.forEach { item ->
+                val selected = selectedRoute == item.route
+                val isCenter = item.route == AgentRoutes.Agent
+                val scale by animateFloatAsState(
+                    targetValue = if (selected) 1f else 0.96f,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 700f),
+                    label = "nav-scale-${item.route}",
+                )
+
+                if (isCenter) {
+                    val elevation by animateDpAsState(
+                        targetValue = if (selected) 8.dp else 5.dp,
+                        animationSpec = spring(dampingRatio = 0.9f, stiffness = 800f),
+                        label = "nav-center-elevation",
+                    )
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .offset(y = (-8).dp)
+                                .size(58.dp)
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                }
+                                .clickable { onNavigate(item.route) },
+                            color = Color(0xFF1F1F1F),
+                            shape = RoundedCornerShape(29.dp),
+                            tonalElevation = elevation,
+                            shadowElevation = elevation,
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                item.icon(selected)
+                            }
+                        }
+                    }
+                } else {
+                    val textColor by animateColorAsState(
+                        targetValue = if (selected) InkDeep else Color(0xFF6F6F6F),
+                        animationSpec = spring(stiffness = 700f),
+                        label = "nav-text-${item.route}",
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                            .clickable { onNavigate(item.route) }
+                            .padding(vertical = 5.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        item.icon(selected)
+                        Text(
+                            text = item.label,
+                            color = textColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -121,25 +228,44 @@ fun AgentApp() {
     val hideBottomBar = selectedRoute == AgentRoutes.Agent && imeVisible
 
     val navItems = listOf(
-        NavItem("schedule", "日程") { selected ->
+        NavItem(AgentRoutes.Schedule, "日程") { selected ->
             Icon(
                 Icons.Default.CalendarMonth,
                 contentDescription = null,
-                tint = if (selected) InkDeep else InkSoft,
+                tint = if (selected) InkDeep else Color(0xFF6F6F6F),
+                modifier = Modifier.size(25.dp),
             )
         },
-        NavItem(AgentRoutes.Agent, "互动") { selected ->
-            Icon(
-                Icons.AutoMirrored.Filled.Chat,
-                contentDescription = null,
-                tint = if (selected) CanvasIvory else InkSoft,
-            )
-        },
-        NavItem("ledger", "记账") { selected ->
+        NavItem(AgentRoutes.Ledger, "记账") { selected ->
             Icon(
                 Icons.AutoMirrored.Filled.ReceiptLong,
                 contentDescription = null,
-                tint = if (selected) InkDeep else InkSoft,
+                tint = if (selected) InkDeep else Color(0xFF6F6F6F),
+                modifier = Modifier.size(25.dp),
+            )
+        },
+        NavItem(AgentRoutes.Agent, "聊天") { _ ->
+            Icon(
+                Icons.AutoMirrored.Filled.Chat,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(25.dp),
+            )
+        },
+        NavItem(AgentRoutes.Pending, "暂定") { selected ->
+            Icon(
+                Icons.Default.MoreHoriz,
+                contentDescription = null,
+                tint = if (selected) InkDeep else Color(0xFF6F6F6F),
+                modifier = Modifier.size(25.dp),
+            )
+        },
+        NavItem(AgentRoutes.Profile, "我的") { selected ->
+            Icon(
+                Icons.Default.Person,
+                contentDescription = null,
+                tint = if (selected) InkDeep else Color(0xFF6F6F6F),
+                modifier = Modifier.size(25.dp),
             )
         },
     )
@@ -163,110 +289,11 @@ fun AgentApp() {
                 enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }) + scaleIn(initialScale = 0.96f),
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }) + scaleOut(targetScale = 0.96f),
             ) {
-                Surface(color = Color.Transparent) {
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 18.dp, vertical = 10.dp)
-                            .fillMaxWidth()
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color(0xFFFFF8EC),
-                                        Color(0xFFF0E2CC),
-                                    )
-                                ),
-                                shape = RoundedCornerShape(26.dp),
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = LineSoft,
-                                shape = RoundedCornerShape(26.dp),
-                            )
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            navItems.forEachIndexed { index, item ->
-                                val selected = selectedRoute == item.route
-                                val isCenter = index == 1
-                                val navigate = {
-                                    val route = when (item.route) {
-                                        "schedule" -> AgentRoutes.schedule()
-                                        "ledger" -> AgentRoutes.ledger()
-                                        else -> AgentRoutes.Agent
-                                    }
-                                    navigateTo(route)
-                                }
-                                val scale by animateFloatAsState(
-                                    targetValue = if (selected) 1f else 0.96f,
-                                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 700f),
-                                    label = "nav-scale-${item.route}",
-                                )
-                                val textColor by animateColorAsState(
-                                    targetValue = if (selected) InkDeep else InkSoft,
-                                    animationSpec = spring(stiffness = 700f),
-                                    label = "nav-text-${item.route}",
-                                )
-
-                                if (isCenter) {
-                                    val containerColor by animateColorAsState(
-                                        targetValue = if (selected) AccentVermilion else Color(0xFFE4D5BD),
-                                        animationSpec = spring(stiffness = 700f),
-                                        label = "nav-center-bg",
-                                    )
-                                    val elevation by animateDpAsState(
-                                        targetValue = if (selected) 8.dp else 0.dp,
-                                        animationSpec = spring(dampingRatio = 0.9f, stiffness = 800f),
-                                        label = "nav-center-elevation",
-                                    )
-                                    Surface(
-                                        modifier = Modifier
-                                            .size(56.dp)
-                                            .graphicsLayer {
-                                                scaleX = scale
-                                                scaleY = scale
-                                            }
-                                            .clickable(onClick = navigate),
-                                        color = containerColor,
-                                        shape = RoundedCornerShape(18.dp),
-                                        tonalElevation = elevation,
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            item.icon(selected)
-                                        }
-                                    }
-                                } else {
-                                    Surface(
-                                        modifier = Modifier
-                                            .graphicsLayer {
-                                                scaleX = scale
-                                                scaleY = scale
-                                            }
-                                            .clickable(onClick = navigate),
-                                        color = Color.Transparent,
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            item.icon(selected)
-                                            Text(
-                                                text = item.label,
-                                                color = textColor,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                ConstructivistBottomBar(
+                    navItems = navItems,
+                    selectedRoute = selectedRoute,
+                    onNavigate = { route -> navigateTo(AgentRoutes.targetRouteOf(route)) },
+                )
             }
         },
     ) { innerPadding ->
@@ -279,7 +306,6 @@ fun AgentApp() {
                 composable(AgentRoutes.Agent) {
                     AgentHomeScreen(
                         viewModel = viewModel,
-                        onOpenSettings = { navigateTo(AgentRoutes.Settings) },
                         onOpenSchedule = { targetDate, batchId ->
                             navigateTo(AgentRoutes.schedule(targetDate = targetDate, actionBatchId = batchId))
                         },
@@ -332,7 +358,10 @@ fun AgentApp() {
                         highlightBatchId = entry.arguments?.getString("actionBatchId").orEmpty().ifBlank { null },
                     )
                 }
-                composable(AgentRoutes.Settings) {
+                composable(AgentRoutes.Pending) {
+                    PendingScreen()
+                }
+                composable(AgentRoutes.Profile) {
                     SettingsScreen(viewModel)
                 }
             }
