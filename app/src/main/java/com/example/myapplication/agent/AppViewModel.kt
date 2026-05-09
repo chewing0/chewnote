@@ -4,21 +4,16 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myapplication.agent.data.LocalStore
-import com.example.myapplication.agent.model.ActionReceipt
-import com.example.myapplication.agent.model.ActionReceiptKind
-import com.example.myapplication.agent.model.AgentAction
 import com.example.myapplication.agent.model.AuthResponse
 import com.example.myapplication.agent.model.AuthState
+import com.example.myapplication.agent.model.BackendModelStatus
 import com.example.myapplication.agent.model.ChatMessage
-import com.example.myapplication.agent.model.ChatMessageKind
-import com.example.myapplication.agent.model.ChatMessagePayload
+import com.example.myapplication.agent.model.Conversation
 import com.example.myapplication.agent.model.ConnectionTestResult
 import com.example.myapplication.agent.model.ConnectionTestStatus
-import com.example.myapplication.agent.model.ContextSnapshot
 import com.example.myapplication.agent.model.LedgerEntry
 import com.example.myapplication.agent.model.LedgerPeriod
 import com.example.myapplication.agent.model.ModelSettings
-import com.example.myapplication.agent.model.ReceiptActionTarget
 import com.example.myapplication.agent.model.ScheduleItem
 import com.example.myapplication.agent.net.AgentRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,8 +23,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
-import java.time.LocalDate
-import java.util.UUID
 
 data class AgentUiState(
     val input: String = "",
@@ -47,8 +40,6 @@ data class AccountUiState(
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val localStore = LocalStore(application.applicationContext)
     private val repository = AgentRepository()
-    private val legacyWelcomeMessage = "你好，我是 TimePaper Agent。你可以和我聊天，也可以让我记账和安排日程。"
-    private val currentWelcomeMessage = "你好，我是 MyLife Agent。你可以和我聊天，也可以让我记账和安排日程。"
 
     private val _uiState = MutableStateFlow(AgentUiState())
     val uiState: StateFlow<AgentUiState> = _uiState.asStateFlow()
@@ -58,6 +49,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _connectionTestResult = MutableStateFlow(ConnectionTestResult())
     val connectionTestResult: StateFlow<ConnectionTestResult> = _connectionTestResult.asStateFlow()
+
+    private val _backendModelStatus = MutableStateFlow<BackendModelStatus?>(null)
+    val backendModelStatus: StateFlow<BackendModelStatus?> = _backendModelStatus.asStateFlow()
 
     private val _agentStatus = MutableStateFlow(
         ConnectionTestResult(
@@ -80,17 +74,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         emptyList(),
     )
 
-    val chatMessages: StateFlow<List<ChatMessage>> = localStore.observeChatMessages().stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        emptyList(),
-    )
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
-    private val contextSnapshot: StateFlow<ContextSnapshot> = localStore.observeContextSnapshot().stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        ContextSnapshot(),
-    )
+    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
+    val conversations: StateFlow<List<Conversation>> = _conversations.asStateFlow()
+
+    private val _currentConversationId = MutableStateFlow("")
+    val currentConversationId: StateFlow<String> = _currentConversationId.asStateFlow()
 
     val modelSettings: StateFlow<ModelSettings> = localStore.observeModelSettings().stateIn(
         viewModelScope,
@@ -110,16 +101,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             localStore.migrateLegacyStructuredData()
             localStore.migrateLedgerCategoriesToPreset()
             localStore.migrateToBackendStorageCache()
-            localStore.migrateLegacyWelcomeMessage(
-                oldContent = legacyWelcomeMessage,
-                newContent = currentWelcomeMessage,
-            )
-            localStore.ensureWelcomeMessage(
-                ChatMessage(
-                    role = "assistant",
-                    content = currentWelcomeMessage,
-                )
-            )
+            localStore.clearLocalConversationStorage()
             val currentAuth = localStore.getAuthState()
             if (currentAuth.isLoggedIn) {
                 syncStoredSessionSafely()
@@ -146,11 +128,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val requestContext = chatMessages.value.toContextRequest(contextSnapshot.value)
-        val userMessage = ChatMessage(role = "user", content = content)
-
         viewModelScope.launch {
-            localStore.appendChatMessage(userMessage)
+            val optimisticMessage = ChatMessage(role = "user", content = content)
+            _chatMessages.value = _chatMessages.value + optimisticMessage
             _uiState.value = _uiState.value.copy(
                 input = "",
                 loading = true,
@@ -158,51 +138,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             runCatching {
-                val sessionId = localStore.getOrCreateSessionId()
                 authorizedCall { token ->
+                    val conversationId = ensureActiveConversation(content, token)
                     repository.processNaturalLanguage(
                         text = content,
-                        sessionId = sessionId,
-                        history = requestContext.history,
-                        contextSummary = requestContext.contextSummary,
-                        summaryHistory = requestContext.summaryHistory,
+                        conversationId = conversationId,
                         settings = modelSettings.value,
                         accessToken = token,
                     )
                 }
             }.onSuccess { response ->
-                response.contextSummary?.takeIf { requestContext.summaryHistory.isNotEmpty() }?.let { summary ->
-                    localStore.saveContextSnapshot(
-                        ContextSnapshot(
-                            summary = summary,
-                            summarizedMessageCount = requestContext.nextSummarizedMessageCount,
-                            updatedAt = System.currentTimeMillis(),
-                        )
-                    )
+                if (response.conversationId.isNotBlank()) {
+                    _currentConversationId.value = response.conversationId
                 }
                 if (response.changedDomains.any { it == "schedule" || it == "ledger" }) {
                     authorizedCall { token ->
                         syncStructuredCache(modelSettings.value, token, authState.value.user?.id.orEmpty())
                     }
                 }
-
-                val messagesToAppend = buildList {
-                    if (response.reply.isNotBlank()) {
-                        add(ChatMessage(role = "assistant", content = response.reply))
-                    }
-                }
-                localStore.appendChatMessages(messagesToAppend)
+                refreshConversationState(selectConversationId = response.conversationId.ifBlank { _currentConversationId.value })
                 _uiState.value = _uiState.value.copy(
                     loading = false,
                     error = null,
                 )
             }.onFailure { throwable ->
                 val friendlyError = throwable.toReadableMessage()
-                localStore.appendChatMessage(
+                _chatMessages.value = _chatMessages.value + listOf(
                     ChatMessage(
                         role = "assistant",
                         content = "当前连接暂时不可用，请检查后端地址或设置页里的模型配置后再试。",
-                    )
+                    ),
                 )
                 _uiState.value = _uiState.value.copy(
                     loading = false,
@@ -267,20 +232,103 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun undoActionBatch(batchId: String) {
         viewModelScope.launch {
             localStore.deleteEntriesForActionBatch(batchId)
-            localStore.markReceiptUndone(batchId)
+            // Action receipts from older local chats are no longer persisted after conversations moved to backend.
         }
     }
 
     fun deleteChatMessageAt(index: Int) {
         viewModelScope.launch {
-            localStore.deleteChatMessageAt(index)
+            val conversationId = _currentConversationId.value
+            val message = _chatMessages.value.getOrNull(index)
+            if (conversationId.isBlank() || message?.id.isNullOrBlank()) return@launch
+            runCatching {
+                authorizedCall { token ->
+                    repository.deleteConversationMessage(conversationId, message.id, modelSettings.value, token)
+                    loadConversationMessages(conversationId, modelSettings.value, token)
+                    refreshConversations(modelSettings.value, token)
+                }
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
+        }
+    }
+
+    fun createConversation() {
+        viewModelScope.launch {
+            runCatching {
+                authorizedCall { token ->
+                    val created = repository.createConversation("新对话", modelSettings.value, token)
+                    _currentConversationId.value = created.id
+                    refreshConversationState(selectConversationId = created.id)
+                }
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
+        }
+    }
+
+    fun selectConversation(conversationId: String) {
+        if (conversationId == _currentConversationId.value) return
+        viewModelScope.launch {
+            runCatching {
+                authorizedCall { token ->
+                    _currentConversationId.value = conversationId
+                    loadConversationMessages(conversationId, modelSettings.value, token)
+                    refreshConversations(modelSettings.value, token)
+                }
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
+        }
+    }
+
+    fun renameConversation(conversationId: String, title: String) {
+        val cleanTitle = title.trim()
+        if (conversationId.isBlank() || cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                authorizedCall { token ->
+                    repository.updateConversation(conversationId, cleanTitle, modelSettings.value, token)
+                    refreshConversations(modelSettings.value, token)
+                }
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
+        }
+    }
+
+    fun deleteConversation(conversationId: String) {
+        if (conversationId.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                authorizedCall { token ->
+                    repository.deleteConversation(conversationId, modelSettings.value, token)
+                    if (_currentConversationId.value == conversationId) {
+                        _currentConversationId.value = ""
+                        _chatMessages.value = emptyList()
+                    }
+                    refreshConversationState(selectConversationId = "")
+                }
+            }.onFailure { throwable ->
+                _uiState.value = _uiState.value.copy(error = throwable.toReadableMessage())
+            }
         }
     }
 
     fun saveModelSettings(settings: ModelSettings) {
         viewModelScope.launch {
             localStore.saveModelSettings(settings)
+            refreshBackendModelStatus(settings)
             refreshAgentStatus(settings)
+        }
+    }
+
+    fun refreshBackendModelStatus(candidateSettings: ModelSettings? = null) {
+        viewModelScope.launch {
+            val settings = candidateSettings ?: modelSettings.value
+            _backendModelStatus.value = runCatching {
+                repository.getBackendModelStatus(settings)
+            }.getOrNull()
         }
     }
 
@@ -347,6 +395,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             localStore.clearAuthSession()
+            _conversations.value = emptyList()
+            _currentConversationId.value = ""
+            _chatMessages.value = emptyList()
             _accountUiState.value = AccountUiState(notice = "已退出登录，本机缓存会保留为只读。")
         }
     }
@@ -388,6 +439,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     repository.changePassword(oldPassword, newPassword, modelSettings.value, token)
                 }
                 localStore.clearAuthSession()
+                _conversations.value = emptyList()
+                _currentConversationId.value = ""
+                _chatMessages.value = emptyList()
             }.onSuccess {
                 _accountUiState.value = AccountUiState(notice = "密码已修改，请重新登录。")
             }.onFailure { throwable ->
@@ -415,6 +469,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         localStore.clearStructuredCache(ownerId = userId)
                         syncStructuredCache(modelSettings.value, token, userId)
                     }
+                    refreshConversationState(settings = modelSettings.value, accessToken = token)
                 }
             }.onSuccess {
                 _accountUiState.value = AccountUiState(notice = if (uploadLocal) "本机数据已上传并同步。" else "已切换为云端数据。")
@@ -438,6 +493,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         syncStructuredCache(modelSettings.value, response.accessToken, response.user.id)
+        refreshConversationState(settings = modelSettings.value, accessToken = response.accessToken)
         _accountUiState.value = AccountUiState(notice = "登录成功，数据已同步。")
     }
 
@@ -446,10 +502,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             authorizedCall { token ->
                 val ownerId = localStore.getAuthState().user?.id.orEmpty()
                 syncStructuredCache(modelSettings.value, token, ownerId)
+                refreshConversationState(settings = modelSettings.value, accessToken = token)
             }
         }.onFailure { throwable ->
             if (throwable is HttpException && throwable.code() == 401) {
                 localStore.clearAuthSession()
+                _conversations.value = emptyList()
+                _currentConversationId.value = ""
+                _chatMessages.value = emptyList()
                 _accountUiState.value = AccountUiState(error = "登录状态已过期，请重新登录。")
             } else {
                 _accountUiState.value = AccountUiState(error = "暂时无法同步云端数据，本机缓存仍可查看。")
@@ -495,203 +555,58 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    private suspend fun applyActions(
-        actions: List<AgentAction>,
-        batchId: String,
-        createdAt: Long,
-    ): BatchResult {
-        val schedules = mutableListOf<ScheduleItem>()
-        val ledgers = mutableListOf<LedgerEntry>()
-
-        actions.forEach { action ->
-            when (action.type) {
-                "add_schedule" -> {
-                    val item = ScheduleItem(
-                        title = action.payload.string("title", "未命名日程"),
-                        date = action.payload.string("date", LocalDate.now().toString()),
-                        time = action.payload.string("time", "09:00"),
-                        note = action.payload.string("note", ""),
-                        createdAt = createdAt,
-                        actionBatchId = batchId,
-                    )
-                    localStore.appendSchedule(item)
-                    schedules += item
-                }
-
-                "add_ledger" -> {
-                    val entry = LedgerEntry(
-                        amount = action.payload.double("amount", 0.0),
-                        category = action.payload.string("category", "其他"),
-                        note = action.payload.string("note", ""),
-                        date = action.payload.string("date", LocalDate.now().toString()),
-                        entryType = action.payload.string("entryType", "expense"),
-                        createdAt = createdAt,
-                        actionBatchId = batchId,
-                    )
-                    localStore.appendLedger(entry)
-                    ledgers += entry
-                }
-            }
+    private suspend fun ensureActiveConversation(seedText: String, accessToken: String): String {
+        val current = _currentConversationId.value
+        if (current.isNotBlank() && _conversations.value.any { it.id == current }) {
+            return current
         }
-
-        return BatchResult(
-            schedules = schedules,
-            ledgers = ledgers,
-        )
+        val title = seedText.trim().replace(Regex("\\s+"), " ").take(18).ifBlank { "新对话" }
+        val created = repository.createConversation(title, modelSettings.value, accessToken)
+        _currentConversationId.value = created.id
+        refreshConversations(modelSettings.value, accessToken)
+        _chatMessages.value = emptyList()
+        return created.id
     }
 
-    private fun buildReceiptMessage(
-        batchId: String,
-        createdAt: Long,
-        batchResult: BatchResult,
-    ): ChatMessage? {
-        if (batchResult.schedules.isEmpty() && batchResult.ledgers.isEmpty()) {
-            return null
+    private suspend fun refreshConversationState(
+        selectConversationId: String = _currentConversationId.value,
+        settings: ModelSettings = modelSettings.value,
+        accessToken: String? = null,
+    ) {
+        val token = accessToken ?: localStore.getAuthState().accessToken
+        if (token.isBlank()) {
+            _conversations.value = emptyList()
+            _currentConversationId.value = ""
+            _chatMessages.value = emptyList()
+            return
         }
-
-        val receipt = when {
-            batchResult.schedules.isNotEmpty() && batchResult.ledgers.isNotEmpty() -> {
-                ActionReceipt(
-                    batchId = batchId,
-                    kind = ActionReceiptKind.MIXED,
-                    summary = "已新增 ${batchResult.schedules.size} 条日程，并记录 ${batchResult.ledgers.size} 笔账单。",
-                    primaryAction = ReceiptActionTarget.SCHEDULE,
-                    targetDate = batchResult.schedules.sortedWith(scheduleComparator()).firstOrNull()?.date,
-                    secondaryAction = ReceiptActionTarget.LEDGER,
-                    secondaryPeriod = LedgerPeriod.MONTH,
-                    scheduleCount = batchResult.schedules.size,
-                    ledgerCount = batchResult.ledgers.size,
-                )
-            }
-
-            batchResult.schedules.isNotEmpty() -> {
-                val firstItem = batchResult.schedules.sortedWith(scheduleComparator()).first()
-                val summary = if (batchResult.schedules.size == 1) {
-                    "已添加日程：${firstItem.date} ${firstItem.time} ${firstItem.title}"
-                } else {
-                    "已添加 ${batchResult.schedules.size} 条日程，首条安排在 ${firstItem.date} ${firstItem.time}。"
-                }
-                ActionReceipt(
-                    batchId = batchId,
-                    kind = ActionReceiptKind.SCHEDULE,
-                    summary = summary,
-                    primaryAction = ReceiptActionTarget.SCHEDULE,
-                    targetDate = firstItem.date,
-                    scheduleCount = batchResult.schedules.size,
-                )
-            }
-
-            else -> {
-                val firstEntry = batchResult.ledgers.first()
-                val summary = if (batchResult.ledgers.size == 1) {
-                    "已记录账单：${firstEntry.category} ¥${"%.2f".format(firstEntry.amount)}"
-                } else {
-                    "已记录 ${batchResult.ledgers.size} 笔账单，可到本月统计页查看。"
-                }
-                ActionReceipt(
-                    batchId = batchId,
-                    kind = ActionReceiptKind.LEDGER,
-                    summary = summary,
-                    primaryAction = ReceiptActionTarget.LEDGER,
-                    period = LedgerPeriod.MONTH,
-                    ledgerCount = batchResult.ledgers.size,
-                )
-            }
+        val conversations = refreshConversations(settings, token)
+        val targetId = when {
+            selectConversationId.isNotBlank() && conversations.any { it.id == selectConversationId } -> selectConversationId
+            _currentConversationId.value.isNotBlank() && conversations.any { it.id == _currentConversationId.value } -> _currentConversationId.value
+            else -> conversations.firstOrNull()?.id.orEmpty()
         }
-
-        return ChatMessage(
-            role = "assistant",
-            content = "",
-            createdAt = createdAt,
-            kind = ChatMessageKind.ACTION_RECEIPT,
-            actionReceipt = receipt,
-        )
-    }
-}
-
-private data class BatchResult(
-    val schedules: List<ScheduleItem>,
-    val ledgers: List<LedgerEntry>,
-)
-
-internal data class ContextRequest(
-    val history: List<ChatMessagePayload>,
-    val contextSummary: String,
-    val summaryHistory: List<ChatMessagePayload>,
-    val nextSummarizedMessageCount: Int,
-)
-
-internal const val RECENT_CONTEXT_MESSAGE_LIMIT = 12
-internal const val SUMMARY_REFRESH_THRESHOLD = 8
-internal const val SUMMARY_SOURCE_MESSAGE_LIMIT = 40
-internal const val SUMMARY_SOURCE_CHAR_LIMIT = 12_000
-
-private fun Map<String, Any?>.string(key: String, fallback: String): String {
-    val value = this[key] ?: return fallback
-    return value.toString()
-}
-
-private fun Map<String, Any?>.double(key: String, fallback: Double): Double {
-    val value = this[key] ?: return fallback
-    return when (value) {
-        is Number -> value.toDouble()
-        is String -> value.toDoubleOrNull() ?: fallback
-        else -> fallback
-    }
-}
-
-internal fun List<ChatMessage>.toContextRequest(snapshot: ContextSnapshot): ContextRequest {
-    val payloads = toPayload()
-    val recentStart = (payloads.size - RECENT_CONTEXT_MESSAGE_LIMIT).coerceAtLeast(0)
-    val history = payloads.drop(recentStart)
-
-    val summarizedCount = snapshot.summarizedMessageCount.coerceIn(0, payloads.size)
-    val unsummarizedStart = summarizedCount.coerceAtMost(recentStart)
-    val unsummarized = if (recentStart > unsummarizedStart) {
-        payloads.subList(unsummarizedStart, recentStart)
-    } else {
-        emptyList()
-    }
-
-    val summaryHistory = if (unsummarized.size >= SUMMARY_REFRESH_THRESHOLD) {
-        unsummarized.takeForSummary()
-    } else {
-        emptyList()
-    }
-
-    return ContextRequest(
-        history = history,
-        contextSummary = snapshot.summary,
-        summaryHistory = summaryHistory,
-        nextSummarizedMessageCount = unsummarizedStart + summaryHistory.size,
-    )
-}
-
-private fun List<ChatMessage>.toPayload(): List<ChatMessagePayload> {
-    return asSequence()
-        .filter { it.kind == ChatMessageKind.MESSAGE }
-        .filter { it.content.isNotBlank() }
-        .map { ChatMessagePayload(role = it.role, content = it.content) }
-        .toList()
-}
-
-private fun List<ChatMessagePayload>.takeForSummary(): List<ChatMessagePayload> {
-    val selected = mutableListOf<ChatMessagePayload>()
-    var totalChars = 0
-    for (message in take(SUMMARY_SOURCE_MESSAGE_LIMIT)) {
-        val messageChars = message.role.length + message.content.length
-        if (selected.isEmpty() && messageChars > SUMMARY_SOURCE_CHAR_LIMIT) {
-            val allowedContentLength = (SUMMARY_SOURCE_CHAR_LIMIT - message.role.length).coerceAtLeast(0)
-            selected += message.copy(content = message.content.take(allowedContentLength))
-            break
+        _currentConversationId.value = targetId
+        if (targetId.isBlank()) {
+            _chatMessages.value = emptyList()
+        } else {
+            loadConversationMessages(targetId, settings, token)
         }
-        if (selected.isNotEmpty() && totalChars + messageChars > SUMMARY_SOURCE_CHAR_LIMIT) {
-            break
-        }
-        selected += message
-        totalChars += messageChars
     }
-    return selected
+
+    private suspend fun refreshConversations(settings: ModelSettings, accessToken: String): List<Conversation> {
+        val conversations = repository.listConversations(settings, accessToken)
+        _conversations.value = conversations
+        return conversations
+    }
+
+    private suspend fun loadConversationMessages(conversationId: String, settings: ModelSettings, accessToken: String) {
+        if (conversationId.isBlank()) {
+            _chatMessages.value = emptyList()
+            return
+        }
+        _chatMessages.value = repository.listConversationMessages(conversationId, settings, accessToken)
+    }
 }
 
 private fun Throwable.toReadableMessage(): String {
@@ -717,6 +632,3 @@ private fun Throwable.toReadableMessage(): String {
     }
 }
 
-private fun scheduleComparator(): Comparator<ScheduleItem> {
-    return compareBy<ScheduleItem>({ it.date }, { it.time }, { it.createdAt })
-}

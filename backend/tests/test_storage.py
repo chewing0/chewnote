@@ -4,7 +4,7 @@ import os
 import unittest
 
 from agent_backend.auth import AuthError, AuthService
-from agent_backend.llm_client import _backend_time_context, _resolve_relative_date, _resolve_relative_range
+from agent_backend.llm_client import _backend_time_context, _infer_simple_ledger, _resolve_relative_date, _resolve_relative_range
 from agent_backend.storage import DOMAIN_SCHEDULE, AgentStore, _to_psycopg_query
 
 
@@ -26,6 +26,8 @@ class AgentStoreTest(unittest.TestCase):
     def _clear_store(self) -> None:
         with self.store._connect() as conn:
             conn.execute("DELETE FROM pending_agent_operations")
+            conn.execute("DELETE FROM chat_messages")
+            conn.execute("DELETE FROM conversations")
             conn.execute("DELETE FROM password_reset_tokens")
             conn.execute("DELETE FROM refresh_tokens")
             conn.execute("DELETE FROM ledger_entries")
@@ -81,6 +83,22 @@ class AgentStoreTest(unittest.TestCase):
         self.store.clear_pending_operation(self.user_a["id"], "session-1")
         self.assertIsNone(self.store.get_pending_operation(self.user_a["id"], "session-1"))
 
+    def test_conversations_and_messages_are_user_scoped(self) -> None:
+        conversation = self.store.create_conversation(self.user_a["id"], "项目讨论")
+        self.store.append_chat_message(self.user_a["id"], conversation["id"], "user", "明天开会")
+        self.store.append_chat_message(self.user_a["id"], conversation["id"], "assistant", "已记录")
+
+        self.assertEqual(1, len(self.store.list_conversations(self.user_a["id"])))
+        self.assertEqual([], self.store.list_conversations(self.user_b["id"]))
+        messages = self.store.list_chat_messages(self.user_a["id"], conversation["id"])
+        self.assertEqual(["user", "assistant"], [item["role"] for item in messages])
+        self.assertEqual([], self.store.list_chat_messages(self.user_b["id"], conversation["id"]))
+
+        self.store.update_context_snapshot(self.user_a["id"], conversation["id"], "用户提到明天开会", 2)
+        snapshot = self.store.get_context_snapshot(self.user_a["id"], conversation["id"])
+        self.assertEqual("用户提到明天开会", snapshot["summary"])
+        self.assertEqual(2, snapshot["summarizedMessageCount"])
+
     def test_auth_refresh_password_reset_and_change(self) -> None:
         login = self.auth.login("alice_test", "password123")
         refreshed = self.auth.refresh(login["refreshToken"])
@@ -123,6 +141,15 @@ class BackendTimeTest(unittest.TestCase):
         self.assertRegex(current_date, r"^\d{4}-\d{2}-\d{2}$")
         self.assertRegex(current_time, r"^\d{2}:\d{2}$")
         self.assertEqual("Asia/Shanghai", timezone)
+
+    def test_simple_ledger_fallback_infers_common_expense(self) -> None:
+        inferred = _infer_simple_ledger("今天午饭花了28元", "2026-05-08")
+
+        self.assertIsNotNone(inferred)
+        self.assertEqual(28.0, inferred["amount"])
+        self.assertEqual("餐饮", inferred["category"])
+        self.assertEqual("expense", inferred["entry_type"])
+        self.assertEqual("2026-05-08", inferred["date"])
 
 
 if __name__ == "__main__":

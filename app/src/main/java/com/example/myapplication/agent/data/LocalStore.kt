@@ -79,12 +79,7 @@ class LocalStore(private val context: Context) {
                 runCatching { gson.fromJson(json, ModelSettings::class.java) }.getOrDefault(ModelSettings())
             }
 
-            val secureApiKey = secureSettingsStore.getApiKey()
-            if (secureApiKey.isBlank() && stored.apiKey.isNotBlank()) {
-                secureSettingsStore.saveApiKey(stored.apiKey)
-            }
-
-            stored.copy(apiKey = secureSettingsStore.getApiKey())
+            stored.backendOnly()
         }
     }
 
@@ -240,6 +235,14 @@ class LocalStore(private val context: Context) {
         }
     }
 
+    suspend fun clearLocalConversationStorage() {
+        context.agentDataStore.edit { prefs ->
+            prefs.remove(chatMessagesKey)
+            prefs.remove(contextSnapshotKey)
+            prefs.remove(sessionIdKey)
+        }
+    }
+
     suspend fun clearContextSnapshot() {
         context.agentDataStore.edit { prefs ->
             prefs.remove(contextSnapshotKey)
@@ -292,9 +295,9 @@ class LocalStore(private val context: Context) {
     }
 
     suspend fun saveModelSettings(settings: ModelSettings) {
-        secureSettingsStore.saveApiKey(settings.apiKey)
+        secureSettingsStore.saveApiKey("")
         context.agentDataStore.edit { prefs ->
-            prefs[modelSettingsKey] = gson.toJson(settings.copy(apiKey = ""))
+            prefs[modelSettingsKey] = gson.toJson(settings.backendOnly())
         }
     }
 
@@ -304,15 +307,8 @@ class LocalStore(private val context: Context) {
             val stored = runCatching { gson.fromJson(json, ModelSettings::class.java) }
                 .getOrDefault(ModelSettings())
 
-            if (stored.apiKey.isBlank()) {
-                return@edit
-            }
-
-            if (secureSettingsStore.getApiKey().isBlank()) {
-                secureSettingsStore.saveApiKey(stored.apiKey)
-            }
-
-            prefs[modelSettingsKey] = gson.toJson(stored.copy(apiKey = ""))
+            secureSettingsStore.saveApiKey("")
+            prefs[modelSettingsKey] = gson.toJson(stored.backendOnly())
         }
     }
 
@@ -457,4 +453,13 @@ class LocalStore(private val context: Context) {
             else -> "expense"
         }
     }
+}
+
+private fun ModelSettings.backendOnly(): ModelSettings {
+    return copy(
+        backendUrl = backendUrl.trim(),
+        modelBaseUrl = "",
+        modelName = "",
+        apiKey = "",
+    )
 }

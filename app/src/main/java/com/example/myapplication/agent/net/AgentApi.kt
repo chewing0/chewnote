@@ -4,7 +4,12 @@ import com.example.myapplication.agent.model.AgentRequest
 import com.example.myapplication.agent.model.AgentResponse
 import com.example.myapplication.agent.model.AuthResponse
 import com.example.myapplication.agent.model.AuthUser
+import com.example.myapplication.agent.model.BackendModelStatus
 import com.example.myapplication.agent.model.ChangePasswordRequest
+import com.example.myapplication.agent.model.ChatMessage
+import com.example.myapplication.agent.model.Conversation
+import com.example.myapplication.agent.model.ConversationCreateRequest
+import com.example.myapplication.agent.model.ConversationUpdateRequest
 import com.example.myapplication.agent.model.DeleteResponse
 import com.example.myapplication.agent.model.ForgotPasswordRequest
 import com.example.myapplication.agent.model.ForgotPasswordResponse
@@ -29,6 +34,9 @@ import retrofit2.http.POST
 interface AgentApi {
     @GET("health")
     suspend fun health(): HealthResponse
+
+    @GET("config/model")
+    suspend fun modelConfigStatus(): BackendModelStatus
 
     @POST("auth/register")
     suspend fun register(@Body request: RegisterRequest): AuthResponse
@@ -65,6 +73,35 @@ interface AgentApi {
         @Header("Authorization") authorization: String,
         @Body request: SyncImportRequest,
     ): SyncResponse
+
+    @GET("conversations")
+    suspend fun listConversations(@Header("Authorization") authorization: String): List<Conversation>
+
+    @POST("conversations")
+    suspend fun createConversation(
+        @Header("Authorization") authorization: String,
+        @Body request: ConversationCreateRequest,
+    ): Conversation
+
+    @PATCH("conversations/{id}")
+    suspend fun updateConversation(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+        @Body request: ConversationUpdateRequest,
+    ): Conversation
+
+    @DELETE("conversations/{id}")
+    suspend fun deleteConversation(@Header("Authorization") authorization: String, @Path("id") id: String): DeleteResponse
+
+    @GET("conversations/{id}/messages")
+    suspend fun listConversationMessages(@Header("Authorization") authorization: String, @Path("id") id: String): List<ChatMessage>
+
+    @DELETE("conversations/{conversationId}/messages/{messageId}")
+    suspend fun deleteConversationMessage(
+        @Header("Authorization") authorization: String,
+        @Path("conversationId") conversationId: String,
+        @Path("messageId") messageId: String,
+    ): DeleteResponse
 
     @POST("schedules")
     suspend fun createSchedule(@Header("Authorization") authorization: String, @Body item: ScheduleItem): ScheduleItem

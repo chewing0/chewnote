@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.agent.AppViewModel
 import com.example.myapplication.agent.model.AuthState
+import com.example.myapplication.agent.model.BackendModelStatus
 import com.example.myapplication.agent.model.ConnectionTestResult
 import com.example.myapplication.agent.model.ConnectionTestStatus
 import com.example.myapplication.agent.model.ModelSettings
@@ -84,13 +85,11 @@ private val ProfileDivider = Color(0xFFE8E8E4)
 fun SettingsScreen(viewModel: AppViewModel) {
     val settings by viewModel.modelSettings.collectAsState()
     val connectionResult by viewModel.connectionTestResult.collectAsState()
+    val backendModelStatus by viewModel.backendModelStatus.collectAsState()
     val authState by viewModel.authState.collectAsState()
     val accountState by viewModel.accountUiState.collectAsState()
 
     var backendUrl by remember { mutableStateOf(settings.backendUrl) }
-    var modelBaseUrl by remember { mutableStateOf(settings.modelBaseUrl) }
-    var modelName by remember { mutableStateOf(settings.modelName) }
-    var apiKey by remember { mutableStateOf(settings.apiKey) }
     var saveTip by remember { mutableStateOf("") }
     var accountMode by remember { mutableStateOf("login") }
     var username by remember { mutableStateOf("") }
@@ -104,9 +103,10 @@ fun SettingsScreen(viewModel: AppViewModel) {
 
     LaunchedEffect(settings) {
         backendUrl = settings.backendUrl
-        modelBaseUrl = settings.modelBaseUrl
-        modelName = settings.modelName
-        apiKey = settings.apiKey
+    }
+
+    LaunchedEffect(settings.backendUrl) {
+        viewModel.refreshBackendModelStatus(settings)
     }
 
     if (currentPage != ProfilePage.Home) {
@@ -115,13 +115,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
 
     val candidateSettings = ModelSettings(
         backendUrl = backendUrl.trim(),
-        modelBaseUrl = modelBaseUrl.trim(),
-        modelName = modelName.trim(),
-        apiKey = apiKey.trim(),
     )
-    val usesLocalModelConfig = candidateSettings.modelBaseUrl.isNotBlank()
-        || candidateSettings.modelName.isNotBlank()
-        || candidateSettings.apiKey.isNotBlank()
 
     if (accountState.pendingSyncUserId.isNotBlank()) {
         AlertDialog(
@@ -144,8 +138,8 @@ fun SettingsScreen(viewModel: AppViewModel) {
     when (currentPage) {
         ProfilePage.Home -> ProfileHomePage(
             authState = authState,
-            usesLocalModelConfig = usesLocalModelConfig,
             backendUrl = NetworkModule.resolveBackendUrl(candidateSettings.backendUrl),
+            backendModelStatus = backendModelStatus,
             onAccountClick = { currentPage = ProfilePage.Account },
             onSettingsClick = { currentPage = ProfilePage.Settings },
             onSyncClick = { currentPage = ProfilePage.Sync },
@@ -211,33 +205,16 @@ fun SettingsScreen(viewModel: AppViewModel) {
                     saveTip = ""
                     viewModel.clearConnectionTestResult()
                 },
-                modelBaseUrl = modelBaseUrl,
-                onModelBaseUrlChange = {
-                    modelBaseUrl = it
-                    saveTip = ""
-                    viewModel.clearConnectionTestResult()
-                },
-                modelName = modelName,
-                onModelNameChange = {
-                    modelName = it
-                    saveTip = ""
-                    viewModel.clearConnectionTestResult()
-                },
-                apiKey = apiKey,
-                onApiKeyChange = {
-                    apiKey = it
-                    saveTip = ""
-                    viewModel.clearConnectionTestResult()
-                },
                 candidateSettings = candidateSettings,
-                usesLocalModelConfig = usesLocalModelConfig,
+                backendModelStatus = backendModelStatus,
                 saveTip = saveTip,
                 connectionResult = connectionResult,
                 onSave = {
                     viewModel.saveModelSettings(candidateSettings)
-                    saveTip = "设置已保存，新的配置会在下一次请求时生效。"
+                    saveTip = "后端地址已保存。模型配置统一使用后端 .env，不再由前端覆盖。"
                 },
                 onTest = { viewModel.testModelConnection(candidateSettings) },
+                onRefreshModelStatus = { viewModel.refreshBackendModelStatus(candidateSettings) },
             )
         }
 
@@ -254,8 +231,8 @@ fun SettingsScreen(viewModel: AppViewModel) {
 @Composable
 private fun ProfileHomePage(
     authState: AuthState,
-    usesLocalModelConfig: Boolean,
     backendUrl: String,
+    backendModelStatus: BackendModelStatus?,
     onAccountClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onSyncClick: () -> Unit,
@@ -289,7 +266,7 @@ private fun ProfileHomePage(
                 ProfileRow(
                     icon = Icons.Filled.Settings,
                     title = "模型与后端",
-                    subtitle = if (usesLocalModelConfig) "本机模型配置优先" else "使用后端默认模型配置",
+                    subtitle = "前端只配置服务地址，模型由后端统一管理",
                     onClick = onSettingsClick,
                 )
                 ProfileDividerLine()
@@ -304,14 +281,16 @@ private fun ProfileHomePage(
             ProfileGroupCard {
                 SummaryRow(label = "后端地址", value = backendUrl)
                 ProfileDividerLine()
+                SummaryRow(label = "后端模型", value = backendModelStatus?.model?.ifBlank { "未读取" } ?: "未读取")
+                ProfileDividerLine()
                 SummaryRow(
                     label = "同步范围",
-                    value = "日程、记账、Agent 操作结果",
+                    value = "对话、日程、记账、Agent 操作结果",
                 )
                 ProfileDividerLine()
                 SummaryRow(
                     label = "本机保留",
-                    value = "聊天记录、上下文摘要、模型设置",
+                    value = "后端地址、登录令牌、只读缓存",
                 )
             }
 
@@ -718,26 +697,18 @@ private fun AccountPanel(
 private fun ModelSettingsPanel(
     backendUrl: String,
     onBackendUrlChange: (String) -> Unit,
-    modelBaseUrl: String,
-    onModelBaseUrlChange: (String) -> Unit,
-    modelName: String,
-    onModelNameChange: (String) -> Unit,
-    apiKey: String,
-    onApiKeyChange: (String) -> Unit,
     candidateSettings: ModelSettings,
-    usesLocalModelConfig: Boolean,
+    backendModelStatus: BackendModelStatus?,
     saveTip: String,
     connectionResult: ConnectionTestResult,
     onSave: () -> Unit,
     onTest: () -> Unit,
+    onRefreshModelStatus: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ConfigSummaryBlock(
-            backendUrl = NetworkModule.resolveBackendUrl(candidateSettings.backendUrl),
-            usesLocalModelConfig = usesLocalModelConfig,
-            modelBaseUrlSource = if (candidateSettings.modelBaseUrl.isBlank()) "后端 .env" else "本地输入",
-            modelNameSource = if (candidateSettings.modelName.isBlank()) "后端 .env" else "本地输入",
-            apiKeySource = if (candidateSettings.apiKey.isBlank()) "后端 .env" else "本地输入",
+        SettingsSectionTitle(
+            title = "前端连接",
+            subtitle = "这里只决定 App 请求哪个后端服务，不再配置模型 Key。",
         )
 
         OutlinedTextField(
@@ -748,34 +719,10 @@ private fun ModelSettingsPanel(
             placeholder = { Text("默认: http://10.0.2.2:8000/") },
             supportingText = { Text("留空则使用默认联调地址。") },
         )
-        OutlinedTextField(
-            value = modelBaseUrl,
-            onValueChange = onModelBaseUrlChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("模型 Base URL") },
-            placeholder = { Text("例如: https://api.siliconflow.cn/v1") },
-            supportingText = { Text("留空则继续使用后端 .env。") },
-        )
-        OutlinedTextField(
-            value = modelName,
-            onValueChange = onModelNameChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("模型名称") },
-            placeholder = { Text("例如: Pro/MiniMaxAI/MiniMax-M2.5") },
-        )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = onApiKeyChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API Key") },
-            placeholder = { Text("例如: sk-...") },
-            visualTransformation = PasswordVisualTransformation(),
-            supportingText = { Text("填写后会加密保存在本机。") },
-        )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onSave) {
-                Text("保存设置")
+                Text("保存后端地址")
             }
             Button(
                 onClick = onTest,
@@ -784,6 +731,12 @@ private fun ModelSettingsPanel(
                 Text(if (connectionResult.status == ConnectionTestStatus.TESTING) "测试中..." else "测试连接")
             }
         }
+
+        ConfigSummaryBlock(
+            backendUrl = NetworkModule.resolveBackendUrl(candidateSettings.backendUrl),
+            backendModelStatus = backendModelStatus,
+            onRefresh = onRefreshModelStatus,
+        )
 
         AnimatedVisibility(
             visible = saveTip.isNotBlank(),
@@ -810,10 +763,8 @@ private fun ModelSettingsPanel(
 @Composable
 private fun ConfigSummaryBlock(
     backendUrl: String,
-    usesLocalModelConfig: Boolean,
-    modelBaseUrlSource: String,
-    modelNameSource: String,
-    apiKeySource: String,
+    backendModelStatus: BackendModelStatus?,
+    onRefresh: () -> Unit,
 ) {
     Surface(
         color = Color(0xFFF7F4EC),
@@ -823,13 +774,37 @@ private fun ConfigSummaryBlock(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("当前生效摘要", style = MaterialTheme.typography.titleSmall, color = InkDeep)
+            Text("后端统一模型配置", style = MaterialTheme.typography.titleSmall, color = InkDeep)
+            Text(
+                "模型 Base URL、模型名称和 API Key 只从后端 .env 读取；前端不会覆盖，避免前后端配置不一致。",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkSoft,
+            )
             SummaryLine(label = "后端地址", value = backendUrl)
-            SummaryLine(label = "模型来源", value = if (usesLocalModelConfig) "本地输入优先" else "后端 .env")
-            SummaryLine(label = "Base URL", value = modelBaseUrlSource)
-            SummaryLine(label = "模型名称", value = modelNameSource)
-            SummaryLine(label = "API Key", value = apiKeySource)
+            SummaryLine(label = "模型来源", value = "后端 .env")
+            SummaryLine(label = "Base URL", value = backendModelStatus?.baseUrl?.ifBlank { "未读取" } ?: "未读取")
+            SummaryLine(label = "模型名称", value = backendModelStatus?.model?.ifBlank { "未读取" } ?: "未读取")
+            SummaryLine(label = "API Key", value = if (backendModelStatus?.apiKeyConfigured == true) "后端已配置" else "后端未配置或未读取")
+            OutlinedButton(onClick = onRefresh) {
+                Text("刷新后端模型状态")
+            }
         }
+    }
+}
+
+@Composable
+private fun SettingsSectionTitle(title: String, subtitle: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = InkDeep,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = InkSoft,
+        )
     }
 }
 
@@ -845,8 +820,8 @@ private fun SyncPanel(authState: AuthState) {
             tone = if (authState.isLoggedIn) AccentMoss else AccentVermilion,
         )
         SummaryLine(label = "云端同步", value = if (authState.isLoggedIn) "已启用" else "未启用")
-        SummaryLine(label = "同步数据", value = "日程、记账、Agent CRUD 结果")
-        SummaryLine(label = "本机数据", value = "聊天记录、上下文摘要、模型设置")
+        SummaryLine(label = "同步数据", value = "对话、日程、记账、Agent CRUD 结果")
+        SummaryLine(label = "本机数据", value = "后端地址、登录令牌、只读缓存")
     }
 }
 

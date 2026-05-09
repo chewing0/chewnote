@@ -35,6 +35,8 @@ data class AgentRequest(
     val text: String,
     @SerializedName("session_id")
     val sessionId: String = "",
+    @SerializedName("conversation_id")
+    val conversationId: String = "",
     val history: List<ChatMessagePayload> = emptyList(),
     @SerializedName("context_summary")
     val contextSummary: String = "",
@@ -57,6 +59,17 @@ data class ModelSettings(
     val modelBaseUrl: String = "",
     val modelName: String = "",
     val apiKey: String = "",
+)
+
+data class BackendModelStatus(
+    @SerializedName("base_url")
+    val baseUrl: String = "",
+    val model: String = "",
+    @SerializedName("api_key_configured")
+    val apiKeyConfigured: Boolean = false,
+    val source: String = "backend_env",
+    @SerializedName("runtime_override_enabled")
+    val runtimeOverrideEnabled: Boolean = false,
 )
 
 data class ChatMessagePayload(
@@ -109,11 +122,13 @@ data class ActionReceipt(
 )
 
 data class ChatMessage(
+    val id: String = "",
+    val conversationId: String = "",
     val role: String,
     val content: String,
     val createdAt: Long = System.currentTimeMillis(),
     val kind: ChatMessageKind = ChatMessageKind.MESSAGE,
-    @SerializedName("action_receipt")
+    @SerializedName(value = "actionReceipt", alternate = ["action_receipt"])
     val actionReceipt: ActionReceipt? = null,
 )
 
@@ -129,6 +144,25 @@ data class AgentResponse(
     val contextSummary: String? = null,
     @SerializedName("changed_domains")
     val changedDomains: List<String> = emptyList(),
+    @SerializedName("conversation_id")
+    val conversationId: String = "",
+)
+
+data class Conversation(
+    val id: String,
+    val title: String = "新对话",
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    val lastMessageAt: Long = 0L,
+    val messageCount: Int = 0,
+)
+
+data class ConversationCreateRequest(
+    val title: String = "",
+)
+
+data class ConversationUpdateRequest(
+    val title: String,
 )
 
 data class HealthResponse(

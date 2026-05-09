@@ -30,12 +30,14 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,14 +46,20 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -83,6 +91,7 @@ import com.example.myapplication.agent.model.ChatMessage
 import com.example.myapplication.agent.model.ChatMessageKind
 import com.example.myapplication.agent.model.ConnectionTestResult
 import com.example.myapplication.agent.model.ConnectionTestStatus
+import com.example.myapplication.agent.model.Conversation
 import com.example.myapplication.agent.model.LedgerEntry
 import com.example.myapplication.agent.model.LedgerPeriod
 import com.example.myapplication.agent.model.ReceiptActionTarget
@@ -114,6 +123,8 @@ fun AgentHomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val agentStatus by viewModel.agentStatus.collectAsState()
     val messages by viewModel.chatMessages.collectAsState()
+    val conversations by viewModel.conversations.collectAsState()
+    val currentConversationId by viewModel.currentConversationId.collectAsState()
     val schedules by viewModel.scheduleItems.collectAsState()
     val ledgers by viewModel.ledgerEntries.collectAsState()
     val listState = rememberLazyListState()
@@ -121,7 +132,13 @@ fun AgentHomeScreen(
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     var selectedMessage by remember { mutableStateOf<Pair<Int, ChatMessage>?>(null) }
+    var showConversationDialog by remember { mutableStateOf(false) }
+    var renameConversation by remember { mutableStateOf<Conversation?>(null) }
+    var deleteConversation by remember { mutableStateOf<Conversation?>(null) }
     var dockHeightPx by remember { mutableIntStateOf(0) }
+    val currentConversation = remember(conversations, currentConversationId) {
+        conversations.firstOrNull { it.id == currentConversationId }
+    }
 
     val today = LocalDate.now()
     val todaySchedules = remember(schedules, today) {
@@ -188,7 +205,7 @@ fun AgentHomeScreen(
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
-                                    text = "MyLife",
+                                    text = currentConversation?.title ?: "MyLife",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = InkDeep,
                                 )
@@ -196,6 +213,33 @@ fun AgentHomeScreen(
                                     text = agentStatus.bannerLabel(),
                                     tone = agentStatus.bannerTone(),
                                 )
+                            }
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                FilledTonalButton(
+                                    onClick = viewModel::createConversation,
+                                    modifier = Modifier.defaultMinSize(minHeight = 34.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Text("新对话")
+                                }
+                                FilledTonalButton(
+                                    onClick = { showConversationDialog = true },
+                                    modifier = Modifier.defaultMinSize(minHeight = 34.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Menu,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Text("对话")
+                                }
                             }
                         }
                     }
@@ -231,7 +275,12 @@ fun AgentHomeScreen(
                         contentPadding = PaddingValues(bottom = listBottomPadding),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        itemsIndexed(messages, key = { index, message -> "${message.createdAt}-${message.kind}-$index" }) { index, message ->
+                        if (messages.isEmpty() && !uiState.loading) {
+                            item {
+                                EmptyConversationState()
+                            }
+                        }
+                        itemsIndexed(messages, key = { index, message -> message.id.ifBlank { "${message.createdAt}-${message.kind}-$index" } }) { index, message ->
                             if (shouldShowDateHeader(messages, index)) {
                                 DateHeader(dateLabel(message.createdAt))
                             }
@@ -333,6 +382,232 @@ fun AgentHomeScreen(
                 }
             },
         )
+    }
+
+    if (showConversationDialog) {
+        ConversationManagerDialog(
+            conversations = conversations,
+            currentConversationId = currentConversationId,
+            onDismiss = { showConversationDialog = false },
+            onNewConversation = {
+                showConversationDialog = false
+                viewModel.createConversation()
+            },
+            onSelect = {
+                showConversationDialog = false
+                viewModel.selectConversation(it.id)
+            },
+            onRename = { renameConversation = it },
+            onDelete = { deleteConversation = it },
+        )
+    }
+
+    renameConversation?.let { conversation ->
+        RenameConversationDialog(
+            conversation = conversation,
+            onDismiss = { renameConversation = null },
+            onConfirm = { title ->
+                viewModel.renameConversation(conversation.id, title)
+                renameConversation = null
+            },
+        )
+    }
+
+    deleteConversation?.let { conversation ->
+        AlertDialog(
+            onDismissRequest = { deleteConversation = null },
+            title = { Text("删除对话") },
+            text = { Text("确定删除“${conversation.title}”吗？这会同时删除后端保存的这条对话消息。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteConversation(conversation.id)
+                    deleteConversation = null
+                    showConversationDialog = false
+                }) {
+                    Text("删除", color = AccentVermilion)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConversation = null }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ConversationManagerDialog(
+    conversations: List<Conversation>,
+    currentConversationId: String,
+    onDismiss: () -> Unit,
+    onNewConversation: () -> Unit,
+    onSelect: (Conversation) -> Unit,
+    onRename: (Conversation) -> Unit,
+    onDelete: (Conversation) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("对话管理") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledTonalButton(onClick = onNewConversation, modifier = Modifier.fillMaxWidth()) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp),
+                    )
+                    Text("新建对话")
+                }
+
+                if (conversations.isEmpty()) {
+                    Text(
+                        text = "还没有对话。发送第一条消息后，后端会自动创建并保存对话。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkSoft,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(conversations, key = { it.id }) { conversation ->
+                            ConversationRow(
+                                conversation = conversation,
+                                selected = conversation.id == currentConversationId,
+                                onSelect = { onSelect(conversation) },
+                                onRename = { onRename(conversation) },
+                                onDelete = { onDelete(conversation) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("完成")
+            }
+        },
+    )
+}
+
+@Composable
+private fun ConversationRow(
+    conversation: Conversation,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onSelect),
+        color = if (selected) AccentVermilion.copy(alpha = 0.1f) else Color(0xFFFFFBF4),
+        border = BorderStroke(1.dp, if (selected) AccentVermilion.copy(alpha = 0.42f) else LineSoft.copy(alpha = 0.7f)),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = conversation.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = InkDeep,
+                )
+                Text(
+                    text = "${conversation.messageCount} 条消息 · ${conversationTimeLabel(conversation)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkSoft,
+                )
+            }
+            IconButton(onClick = onRename, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = "重命名",
+                    tint = InkSoft,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "删除",
+                    tint = AccentVermilion,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RenameConversationDialog(
+    conversation: Conversation,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var title by remember(conversation.id) { mutableStateOf(conversation.title) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("重命名对话") },
+        text = {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("对话名称") },
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(title) },
+                enabled = title.trim().isNotBlank(),
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
+}
+
+@Composable
+private fun EmptyConversationState() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFFFFF7EA),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, AccentVermilion.copy(alpha = 0.22f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "开始一段新对话",
+                style = MaterialTheme.typography.titleMedium,
+                color = InkDeep,
+            )
+            Text(
+                text = "发送消息后，对话和消息会保存到后端，并跟随当前登录账号同步到其他设备。",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkSoft,
+            )
+        }
     }
 }
 
@@ -633,6 +908,13 @@ private fun dateLabel(millis: Long): String {
         today.minusDays(1) -> "昨天"
         else -> date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
     }
+}
+
+private fun conversationTimeLabel(conversation: Conversation): String {
+    val timestamp = listOf(conversation.lastMessageAt, conversation.updatedAt, conversation.createdAt)
+        .firstOrNull { it > 0L }
+        ?: return "刚刚"
+    return dateLabel(timestamp)
 }
 
 private fun timeLabel(millis: Long): String {

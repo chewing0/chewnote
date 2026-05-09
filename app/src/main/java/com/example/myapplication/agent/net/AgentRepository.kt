@@ -3,15 +3,18 @@ package com.example.myapplication.agent.net
 import com.example.myapplication.agent.model.AgentRequest
 import com.example.myapplication.agent.model.AgentResponse
 import com.example.myapplication.agent.model.AuthResponse
+import com.example.myapplication.agent.model.BackendModelStatus
 import com.example.myapplication.agent.model.ChangePasswordRequest
-import com.example.myapplication.agent.model.ChatMessagePayload
+import com.example.myapplication.agent.model.ChatMessage
 import com.example.myapplication.agent.model.ConnectionTestResult
 import com.example.myapplication.agent.model.ConnectionTestStatus
+import com.example.myapplication.agent.model.Conversation
+import com.example.myapplication.agent.model.ConversationCreateRequest
+import com.example.myapplication.agent.model.ConversationUpdateRequest
 import com.example.myapplication.agent.model.ForgotPasswordRequest
 import com.example.myapplication.agent.model.ForgotPasswordResponse
 import com.example.myapplication.agent.model.LedgerEntry
 import com.example.myapplication.agent.model.LoginRequest
-import com.example.myapplication.agent.model.ModelConfigPayload
 import com.example.myapplication.agent.model.ModelSettings
 import com.example.myapplication.agent.model.RefreshTokenRequest
 import com.example.myapplication.agent.model.RegisterRequest
@@ -62,26 +65,59 @@ class AgentRepository {
 
     suspend fun processNaturalLanguage(
         text: String,
-        sessionId: String,
-        history: List<ChatMessagePayload>,
-        contextSummary: String,
-        summaryHistory: List<ChatMessagePayload>,
+        conversationId: String,
         settings: ModelSettings,
         accessToken: String,
     ): AgentResponse {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
-        val modelConfig = settings.toModelConfigOrNull()
         return api.processText(
             bearer(accessToken),
             AgentRequest(
                 text = text.trim(),
-                sessionId = sessionId,
-                history = history,
-                contextSummary = contextSummary,
-                summaryHistory = summaryHistory,
-                modelConfig = modelConfig,
+                sessionId = conversationId,
+                conversationId = conversationId,
             )
         )
+    }
+
+    suspend fun getBackendModelStatus(settings: ModelSettings): BackendModelStatus {
+        return NetworkModule.createAgentApi(settings.backendUrl).modelConfigStatus()
+    }
+
+    suspend fun listConversations(settings: ModelSettings, accessToken: String): List<Conversation> {
+        return NetworkModule.createAgentApi(settings.backendUrl).listConversations(bearer(accessToken))
+    }
+
+    suspend fun createConversation(title: String, settings: ModelSettings, accessToken: String): Conversation {
+        return NetworkModule.createAgentApi(settings.backendUrl)
+            .createConversation(bearer(accessToken), ConversationCreateRequest(title))
+    }
+
+    suspend fun updateConversation(id: String, title: String, settings: ModelSettings, accessToken: String): Conversation {
+        return NetworkModule.createAgentApi(settings.backendUrl)
+            .updateConversation(bearer(accessToken), id, ConversationUpdateRequest(title))
+    }
+
+    suspend fun deleteConversation(id: String, settings: ModelSettings, accessToken: String) {
+        NetworkModule.createAgentApi(settings.backendUrl).deleteConversation(bearer(accessToken), id)
+    }
+
+    suspend fun listConversationMessages(
+        conversationId: String,
+        settings: ModelSettings,
+        accessToken: String,
+    ): List<ChatMessage> {
+        return NetworkModule.createAgentApi(settings.backendUrl).listConversationMessages(bearer(accessToken), conversationId)
+    }
+
+    suspend fun deleteConversationMessage(
+        conversationId: String,
+        messageId: String,
+        settings: ModelSettings,
+        accessToken: String,
+    ) {
+        NetworkModule.createAgentApi(settings.backendUrl)
+            .deleteConversationMessage(bearer(accessToken), conversationId, messageId)
     }
 
     suspend fun syncData(settings: ModelSettings, accessToken: String): SyncResponse {
@@ -120,7 +156,6 @@ class AgentRepository {
 
     suspend fun testConnection(settings: ModelSettings, accessToken: String = ""): ConnectionTestResult {
         val api = NetworkModule.createAgentApi(settings.backendUrl)
-        val modelConfig = settings.toModelConfigOrNull()
 
         val health = runCatching { api.health() }.getOrElse {
             return ConnectionTestResult(
@@ -153,7 +188,6 @@ class AgentRepository {
                     text = "连接测试。请只回复“测试成功”，不要调用任何工具。",
                     sessionId = "connection-test",
                     history = emptyList(),
-                    modelConfig = modelConfig,
                 )
             )
         }.getOrElse { throwable ->
@@ -208,18 +242,4 @@ private fun interpretProbeReply(reply: String): ConnectionTestResult {
             detail = text,
         )
     }
-}
-
-private fun ModelSettings.toModelConfigOrNull(): ModelConfigPayload? {
-    val baseUrl = modelBaseUrl.trim()
-    val model = modelName.trim()
-    val apiKey = apiKey.trim()
-    if (baseUrl.isBlank() && model.isBlank() && apiKey.isBlank()) {
-        return null
-    }
-    return ModelConfigPayload(
-        baseUrl = baseUrl,
-        model = model,
-        apiKey = apiKey,
-    )
 }

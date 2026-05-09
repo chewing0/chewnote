@@ -46,6 +46,15 @@ class LLMClient:
         self.request_timeout_sec = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "18"))
         self.timezone = os.getenv("APP_TIMEZONE", "Asia/Shanghai")
 
+    def public_model_status(self) -> dict[str, Any]:
+        return {
+            "base_url": self.default_base_url,
+            "model": self.default_model,
+            "api_key_configured": bool(self.default_api_key.strip()),
+            "source": "backend_env",
+            "runtime_override_enabled": False,
+        }
+
     def _build_executor(
         self,
         api_key: str,
@@ -464,8 +473,13 @@ class LLMClient:
                 timeout=self.request_timeout_sec,
             )
             reply = result.get("output") if isinstance(result, dict) else ""
+            fallback = None
+            if not changed_domains:
+                fallback = self._try_create_simple_ledger(user_id, text, backend_date)
+                if fallback is not None:
+                    changed_domains.add(DOMAIN_LEDGER)
             return {
-                "reply": reply if isinstance(reply, str) else "",
+                "reply": fallback["reply"] if fallback is not None else (reply if isinstance(reply, str) else ""),
                 "actions": [],
                 "changed_domains": sorted(changed_domains),
             }
@@ -477,11 +491,37 @@ class LLMClient:
             }
         except Exception as exc:
             logger.exception("Agent model/tool execution failed")
+            fallback_date, _, _ = _backend_time_context(self.timezone)
+            fallback = self._try_create_simple_ledger(user_id, text, fallback_date)
+            if fallback is not None:
+                return {
+                    "reply": fallback["reply"],
+                    "actions": [],
+                    "changed_domains": [DOMAIN_LEDGER],
+                }
             return {
                 "reply": _friendly_model_error(str(exc)),
                 "actions": [],
                 "changed_domains": [],
             }
+
+    def _try_create_simple_ledger(self, user_id: str, text: str, current_date: str) -> dict[str, Any] | None:
+        inferred = _infer_simple_ledger(text, current_date)
+        if inferred is None:
+            return None
+        item = self.store.create_ledger(
+            user_id=user_id,
+            amount=inferred["amount"],
+            category=inferred["category"],
+            note=inferred["note"],
+            date=inferred["date"],
+            entry_type=inferred["entry_type"],
+        )
+        type_label = "收入" if item["entryType"] == "income" else "支出"
+        return {
+            "ledger": item,
+            "reply": f"已记录{type_label}：{item['date']} {item['category']} ¥{item['amount']:.2f}。",
+        }
 
     def _mutate_schedules(
         self,
@@ -749,6 +789,66 @@ def _clean_updates(updates: dict[str, Any]) -> dict[str, Any]:
         for key, value in updates.items()
         if value is not None and str(value).strip() != ""
     }
+
+
+def _infer_simple_ledger(text: str, current_date: str) -> dict[str, Any] | None:
+    normalized = text.strip()
+    if not normalized:
+        return None
+    amount_match = re.search(r"(?:¥|￥)?\s*(\d+(?:\.\d{1,2})?)\s*(?:元|块|rmb|RMB)?", normalized)
+    if amount_match is None:
+        return None
+    lowered = normalized.lower()
+    has_ledger_intent = any(
+        keyword in normalized
+        for keyword in ("花了", "花费", "支出", "消费", "买", "付了", "付款", "收入", "入账", "到账", "工资", "报销")
+    )
+    if not has_ledger_intent:
+        return None
+    amount = float(amount_match.group(1))
+    if amount <= 0:
+        return None
+    entry_type = "income" if any(keyword in normalized for keyword in ("收入", "入账", "到账", "工资", "报销", "奖金")) else "expense"
+    note = _clean_ledger_note(normalized, amount_match.group(0))
+    return {
+        "amount": amount,
+        "category": _infer_ledger_category(normalized, entry_type),
+        "note": note,
+        "date": _resolve_relative_date(normalized, current_date) or current_date,
+        "entry_type": entry_type,
+    }
+
+
+def _clean_ledger_note(text: str, amount_text: str) -> str:
+    note = text.replace(amount_text, " ")
+    for keyword in ("帮我", "记一下", "记录一下", "记账", "已记录", "花了", "花费", "支出", "消费", "收入", "入账", "到账", "元", "块"):
+        note = note.replace(keyword, " ")
+    note = re.sub(r"\s+", " ", note).strip(" ，。,.")
+    return note[:40]
+
+
+def _infer_ledger_category(text: str, entry_type: str) -> str:
+    if entry_type == "income":
+        if any(keyword in text for keyword in ("工资", "薪资")):
+            return "工资"
+        if any(keyword in text for keyword in ("奖金", "提成", "年终奖")):
+            return "奖金"
+        if "报销" in text:
+            return "报销"
+        return "其他"
+    category_keywords = [
+        ("餐饮", ("饭", "午餐", "晚餐", "早餐", "外卖", "咖啡", "奶茶", "吃", "餐")),
+        ("交通", ("打车", "地铁", "公交", "高铁", "火车", "机票", "油费", "停车")),
+        ("购物", ("买", "购物", "衣服", "数码", "网购")),
+        ("住房", ("房租", "水电", "燃气", "物业", "宽带")),
+        ("医疗", ("医院", "买药", "药", "体检", "看病")),
+        ("娱乐", ("电影", "游戏", "ktv", "聚会", "娱乐")),
+        ("旅行", ("旅游", "酒店", "机票", "景点")),
+    ]
+    for category, keywords in category_keywords:
+        if any(keyword in text for keyword in keywords):
+            return category
+    return "其他"
 
 
 def _numbered(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

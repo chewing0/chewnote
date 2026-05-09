@@ -27,6 +27,8 @@ class ApiAuthTest(unittest.TestCase):
         agent_store = AgentStore(self.database_url)
         with agent_store._connect() as conn:
             conn.execute("DELETE FROM pending_agent_operations")
+            conn.execute("DELETE FROM chat_messages")
+            conn.execute("DELETE FROM conversations")
             conn.execute("DELETE FROM password_reset_tokens")
             conn.execute("DELETE FROM refresh_tokens")
             conn.execute("DELETE FROM ledger_entries")
@@ -35,6 +37,9 @@ class ApiAuthTest(unittest.TestCase):
 
     def test_protected_routes_require_auth_and_sync_is_user_scoped(self) -> None:
         self.assertEqual(401, self.client.get("/sync").status_code)
+        model_status = self.client.get("/config/model")
+        self.assertEqual(200, model_status.status_code)
+        self.assertEqual("backend_env", model_status.json()["source"])
 
         first = self.client.post(
             "/auth/register",
@@ -56,6 +61,26 @@ class ApiAuthTest(unittest.TestCase):
 
         self.assertEqual(1, len(self.client.get("/sync", headers=first_auth).json()["ledgers"]))
         self.assertEqual(0, len(self.client.get("/sync", headers=second_auth).json()["ledgers"]))
+
+    def test_conversation_routes_are_user_scoped(self) -> None:
+        first = self.client.post(
+            "/auth/register",
+            json={"username": "conv_alice", "email": "conv_alice@example.com", "password": "password123"},
+        ).json()
+        second = self.client.post(
+            "/auth/register",
+            json={"username": "conv_bob", "email": "conv_bob@example.com", "password": "password123"},
+        ).json()
+        first_auth = {"Authorization": f"Bearer {first['accessToken']}"}
+        second_auth = {"Authorization": f"Bearer {second['accessToken']}"}
+
+        created = self.client.post("/conversations", headers=first_auth, json={"title": "测试对话"})
+        self.assertEqual(200, created.status_code)
+        conversation_id = created.json()["id"]
+
+        self.assertEqual(1, len(self.client.get("/conversations", headers=first_auth).json()))
+        self.assertEqual(0, len(self.client.get("/conversations", headers=second_auth).json()))
+        self.assertEqual(404, self.client.get(f"/conversations/{conversation_id}/messages", headers=second_auth).status_code)
 
     def test_refresh_logout_and_reset_password(self) -> None:
         auth = self.client.post(

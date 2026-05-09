@@ -63,6 +63,37 @@ class AgentStore:
                 """,
                 "CREATE INDEX IF NOT EXISTS idx_reset_user ON password_reset_tokens(user_id, expires_at)",
                 """
+                CREATE TABLE IF NOT EXISTS conversations (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    context_summary TEXT NOT NULL DEFAULT '',
+                    summarized_message_count INTEGER NOT NULL DEFAULT 0,
+                    context_updated_at BIGINT NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    last_message_at BIGINT NOT NULL DEFAULT 0
+                )
+                """,
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS context_summary TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summarized_message_count INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS context_updated_at BIGINT NOT NULL DEFAULT 0",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_message_at BIGINT NOT NULL DEFAULT 0",
+                "CREATE INDEX IF NOT EXISTS idx_conversations_user_updated ON conversations(user_id, updated_at DESC)",
+                """
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL DEFAULT '',
+                    kind TEXT NOT NULL DEFAULT 'MESSAGE',
+                    action_receipt_json TEXT,
+                    created_at BIGINT NOT NULL
+                )
+                """,
+                "CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_created ON chat_messages(user_id, conversation_id, created_at ASC)",
+                """
                 CREATE TABLE IF NOT EXISTS schedule_items (
                     id TEXT PRIMARY KEY,
                     user_id TEXT,
@@ -151,6 +182,219 @@ class AgentStore:
                 conn.execute("UPDATE ledger_entries SET user_id = :user_id WHERE user_id IS NULL", {"user_id": item["id"]})
                 conn.execute("DELETE FROM pending_agent_operations WHERE user_id IS NULL")
         return _user_to_wire(item)
+
+    def create_conversation(self, user_id: str, title: str = "") -> dict[str, Any]:
+        now = _now_ms()
+        item = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "title": _clean_conversation_title(title),
+            "context_summary": "",
+            "summarized_message_count": 0,
+            "context_updated_at": 0,
+            "created_at": now,
+            "updated_at": now,
+            "last_message_at": 0,
+            "message_count": 0,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversations(
+                    id, user_id, title, context_summary, summarized_message_count,
+                    context_updated_at, created_at, updated_at, last_message_at
+                )
+                VALUES (
+                    :id, :user_id, :title, :context_summary, :summarized_message_count,
+                    :context_updated_at, :created_at, :updated_at, :last_message_at
+                )
+                """,
+                item,
+            )
+        return _conversation_to_wire(item)
+
+    def get_conversation(self, user_id: str, conversation_id: str) -> dict[str, Any] | None:
+        if not conversation_id:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT c.*, COUNT(m.id) AS message_count
+                FROM conversations c
+                LEFT JOIN chat_messages m ON m.user_id = c.user_id AND m.conversation_id = c.id
+                WHERE c.user_id = :user_id AND c.id = :id
+                GROUP BY c.id
+                LIMIT 1
+                """,
+                {"user_id": user_id, "id": conversation_id},
+            ).fetchone()
+        return _conversation_to_wire(dict(row)) if row else None
+
+    def list_conversations(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT c.*, COUNT(m.id) AS message_count
+                FROM conversations c
+                LEFT JOIN chat_messages m ON m.user_id = c.user_id AND m.conversation_id = c.id
+                WHERE c.user_id = :user_id
+                GROUP BY c.id
+                ORDER BY GREATEST(c.last_message_at, c.updated_at, c.created_at) DESC
+                """,
+                {"user_id": user_id},
+            ).fetchall()
+        return [_conversation_to_wire(dict(row)) for row in rows]
+
+    def update_conversation(self, user_id: str, conversation_id: str, title: str) -> dict[str, Any] | None:
+        now = _now_ms()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE conversations
+                SET title = :title, updated_at = :updated_at
+                WHERE user_id = :user_id AND id = :id
+                """,
+                {
+                    "user_id": user_id,
+                    "id": conversation_id,
+                    "title": _clean_conversation_title(title),
+                    "updated_at": now,
+                },
+            )
+        return self.get_conversation(user_id, conversation_id)
+
+    def delete_conversation(self, user_id: str, conversation_id: str) -> int:
+        if not conversation_id:
+            return 0
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM chat_messages WHERE user_id = :user_id AND conversation_id = :conversation_id",
+                {"user_id": user_id, "conversation_id": conversation_id},
+            )
+            cursor = conn.execute(
+                "DELETE FROM conversations WHERE user_id = :user_id AND id = :id",
+                {"user_id": user_id, "id": conversation_id},
+            )
+            return cursor.rowcount
+
+    def append_chat_message(
+        self,
+        user_id: str,
+        conversation_id: str,
+        role: str,
+        content: str,
+        kind: str = "MESSAGE",
+        action_receipt: dict[str, Any] | None = None,
+        created_at: int | None = None,
+    ) -> dict[str, Any]:
+        now = created_at or _now_ms()
+        item = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "role": role.strip() or "assistant",
+            "content": content,
+            "kind": (kind or "MESSAGE").strip().upper() or "MESSAGE",
+            "action_receipt_json": json.dumps(action_receipt, ensure_ascii=False) if action_receipt else None,
+            "created_at": now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_messages(id, user_id, conversation_id, role, content, kind, action_receipt_json, created_at)
+                VALUES (:id, :user_id, :conversation_id, :role, :content, :kind, :action_receipt_json, :created_at)
+                """,
+                item,
+            )
+            conn.execute(
+                """
+                UPDATE conversations
+                SET updated_at = :updated_at, last_message_at = :last_message_at
+                WHERE user_id = :user_id AND id = :conversation_id
+                """,
+                {
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                    "updated_at": now,
+                    "last_message_at": now,
+                },
+            )
+        return _chat_message_to_wire(item)
+
+    def list_chat_messages(self, user_id: str, conversation_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM chat_messages
+                WHERE user_id = :user_id AND conversation_id = :conversation_id
+                ORDER BY created_at ASC
+                """,
+                {"user_id": user_id, "conversation_id": conversation_id},
+            ).fetchall()
+        return [_chat_message_to_wire(dict(row)) for row in rows]
+
+    def delete_chat_message(self, user_id: str, conversation_id: str, message_id: str) -> int:
+        if not conversation_id or not message_id:
+            return 0
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                DELETE FROM chat_messages
+                WHERE user_id = :user_id AND conversation_id = :conversation_id AND id = :id
+                """,
+                {"user_id": user_id, "conversation_id": conversation_id, "id": message_id},
+            )
+            if cursor.rowcount:
+                conn.execute(
+                    """
+                    UPDATE conversations
+                    SET context_summary = '', summarized_message_count = 0, context_updated_at = 0, updated_at = :updated_at
+                    WHERE user_id = :user_id AND id = :conversation_id
+                    """,
+                    {"user_id": user_id, "conversation_id": conversation_id, "updated_at": _now_ms()},
+                )
+            return cursor.rowcount
+
+    def get_context_snapshot(self, user_id: str, conversation_id: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT context_summary, summarized_message_count, context_updated_at
+                FROM conversations
+                WHERE user_id = :user_id AND id = :id
+                LIMIT 1
+                """,
+                {"user_id": user_id, "id": conversation_id},
+            ).fetchone()
+        if row is None:
+            return {"summary": "", "summarizedMessageCount": 0, "updatedAt": 0}
+        item = dict(row)
+        return {
+            "summary": item.get("context_summary", ""),
+            "summarizedMessageCount": int(item.get("summarized_message_count") or 0),
+            "updatedAt": int(item.get("context_updated_at") or 0),
+        }
+
+    def update_context_snapshot(self, user_id: str, conversation_id: str, summary: str, summarized_message_count: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE conversations
+                SET context_summary = :summary,
+                    summarized_message_count = :summarized_message_count,
+                    context_updated_at = :context_updated_at,
+                    updated_at = :updated_at
+                WHERE user_id = :user_id AND id = :id
+                """,
+                {
+                    "user_id": user_id,
+                    "id": conversation_id,
+                    "summary": summary,
+                    "summarized_message_count": max(0, int(summarized_message_count)),
+                    "context_updated_at": _now_ms(),
+                    "updated_at": _now_ms(),
+                },
+            )
 
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         if not user_id:
@@ -655,6 +899,37 @@ def _user_to_wire(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _conversation_to_wire(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": item["id"],
+        "title": item.get("title", "新对话"),
+        "createdAt": int(item.get("created_at", item.get("createdAt", _now_ms()))),
+        "updatedAt": int(item.get("updated_at", item.get("updatedAt", _now_ms()))),
+        "lastMessageAt": int(item.get("last_message_at", item.get("lastMessageAt", 0)) or 0),
+        "messageCount": int(item.get("message_count", item.get("messageCount", 0)) or 0),
+    }
+
+
+def _chat_message_to_wire(item: dict[str, Any]) -> dict[str, Any]:
+    action_receipt = item.get("action_receipt")
+    if action_receipt is None:
+        raw_receipt = item.get("action_receipt_json")
+        if raw_receipt:
+            try:
+                action_receipt = json.loads(raw_receipt)
+            except (TypeError, json.JSONDecodeError):
+                action_receipt = None
+    return {
+        "id": item["id"],
+        "conversationId": item.get("conversation_id", item.get("conversationId", "")),
+        "role": item.get("role", "assistant"),
+        "content": item.get("content", ""),
+        "kind": item.get("kind", "MESSAGE"),
+        "actionReceipt": action_receipt,
+        "createdAt": int(item.get("created_at", item.get("createdAt", _now_ms()))),
+    }
+
+
 def _schedule_to_wire(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": item["id"],
@@ -685,6 +960,13 @@ def _normalize_entry_type(raw: str, allow_blank: bool = False) -> str:
     if allow_blank and not value:
         return ""
     return "income" if value in {"income", "收入", "入账", "进账", "earning", "earnings"} else "expense"
+
+
+def _clean_conversation_title(raw: str) -> str:
+    title = re.sub(r"\s+", " ", (raw or "").strip())
+    if not title:
+        return "新对话"
+    return title[:28]
 
 
 def _now_ms() -> int:

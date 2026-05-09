@@ -11,7 +11,12 @@ from .schemas import (
     AgentResponse,
     AuthResponse,
     AuthUser,
+    BackendModelStatus,
+    ChatMessageRecord,
     ChangePasswordRequest,
+    ConversationCreate,
+    ConversationRecord,
+    ConversationUpdate,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     LedgerRecord,
@@ -28,6 +33,11 @@ from .schemas import (
 from .storage import AgentStore
 
 load_dotenv()
+
+RECENT_CONTEXT_MESSAGE_LIMIT = 12
+SUMMARY_REFRESH_THRESHOLD = 8
+SUMMARY_SOURCE_MESSAGE_LIMIT = 40
+SUMMARY_SOURCE_CHAR_LIMIT = 12_000
 
 
 def create_app() -> FastAPI:
@@ -56,6 +66,10 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/config/model", response_model=BackendModelStatus)
+    async def model_config_status() -> BackendModelStatus:
+        return BackendModelStatus(**orchestrator.llm.public_model_status())
 
     @app.post("/auth/register", response_model=AuthResponse)
     async def register(req: RegisterRequest) -> AuthResponse:
@@ -120,6 +134,52 @@ def create_app() -> FastAPI:
         store.import_ledgers(user["id"], [item.model_dump() for item in req.ledgers])
         data = store.replace_cache_source(user["id"])
         return SyncResponse(schedules=data["schedules"], ledgers=data["ledgers"])
+
+    @app.get("/conversations", response_model=list[ConversationRecord])
+    async def list_conversations(user: dict = Depends(current_user)) -> list[ConversationRecord]:
+        return store.list_conversations(user["id"])
+
+    @app.post("/conversations", response_model=ConversationRecord)
+    async def create_conversation(req: ConversationCreate, user: dict = Depends(current_user)) -> ConversationRecord:
+        return store.create_conversation(user["id"], req.title)
+
+    @app.patch("/conversations/{conversation_id}", response_model=ConversationRecord)
+    async def update_conversation(
+        conversation_id: str,
+        req: ConversationUpdate,
+        user: dict = Depends(current_user),
+    ) -> ConversationRecord:
+        updated = store.update_conversation(user["id"], conversation_id, req.title or "")
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return updated
+
+    @app.delete("/conversations/{conversation_id}")
+    async def delete_conversation(conversation_id: str, user: dict = Depends(current_user)) -> dict[str, int]:
+        deleted = store.delete_conversation(user["id"], conversation_id)
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {"deleted": deleted}
+
+    @app.get("/conversations/{conversation_id}/messages", response_model=list[ChatMessageRecord])
+    async def list_conversation_messages(
+        conversation_id: str,
+        user: dict = Depends(current_user),
+    ) -> list[ChatMessageRecord]:
+        if store.get_conversation(user["id"], conversation_id) is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return store.list_chat_messages(user["id"], conversation_id)
+
+    @app.delete("/conversations/{conversation_id}/messages/{message_id}")
+    async def delete_conversation_message(
+        conversation_id: str,
+        message_id: str,
+        user: dict = Depends(current_user),
+    ) -> dict[str, int]:
+        deleted = store.delete_chat_message(user["id"], conversation_id, message_id)
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return {"deleted": deleted}
 
     @app.get("/schedules", response_model=list[ScheduleRecord])
     async def list_schedules(
@@ -190,16 +250,47 @@ def create_app() -> FastAPI:
 
     @app.post("/agent/process", response_model=AgentResponse)
     async def process_agent(req: AgentRequest, user: dict = Depends(current_user)) -> AgentResponse:
-        model_config = req.runtime_config.model_dump() if req.runtime_config is not None else None
-        return await orchestrator.handle(
+        # Model settings are intentionally backend-owned. Ignore request-level
+        # model_config so Android and backend cannot drift into different models.
+        model_config = None
+
+        if req.session_id == "connection-test":
+            return await orchestrator.handle(
+                user_id=user["id"],
+                text=req.text,
+                session_id=req.session_id,
+                history=[],
+                model_config=model_config,
+                context_summary="",
+                summary_history=[],
+            )
+
+        conversation = _ensure_conversation(store, user["id"], req.conversation_id, req.text)
+        messages_before = store.list_chat_messages(user["id"], conversation["id"])
+        snapshot = store.get_context_snapshot(user["id"], conversation["id"])
+        context = _build_context_request(messages_before, snapshot)
+        store.append_chat_message(user["id"], conversation["id"], role="user", content=req.text)
+
+        response = await orchestrator.handle(
             user_id=user["id"],
             text=req.text,
-            session_id=req.session_id,
-            history=req.history,
+            session_id=conversation["id"],
+            history=context["history"],
             model_config=model_config,
-            context_summary=req.context_summary,
-            summary_history=req.summary_history,
+            context_summary=context["context_summary"],
+            summary_history=context["summary_history"],
         )
+        if response.context_summary and context["summary_history"]:
+            store.update_context_snapshot(
+                user["id"],
+                conversation["id"],
+                response.context_summary,
+                context["next_summarized_message_count"],
+            )
+        if response.reply.strip():
+            store.append_chat_message(user["id"], conversation["id"], role="assistant", content=response.reply)
+        response.conversation_id = conversation["id"]
+        return response
 
     return app
 
@@ -209,6 +300,58 @@ def _bearer_token(authorization: str) -> str:
     if not value.lower().startswith("bearer "):
         return ""
     return value[7:].strip()
+
+
+def _ensure_conversation(store: AgentStore, user_id: str, conversation_id: str, text: str) -> dict:
+    conversation = store.get_conversation(user_id, conversation_id)
+    if conversation is not None:
+        return conversation
+    return store.create_conversation(user_id, _title_from_text(text))
+
+
+def _title_from_text(text: str) -> str:
+    value = " ".join(text.strip().split())
+    if not value:
+        return "新对话"
+    return value[:18]
+
+
+def _build_context_request(messages: list[dict], snapshot: dict) -> dict[str, object]:
+    payloads = [
+        {"role": item.get("role", ""), "content": item.get("content", "")}
+        for item in messages
+        if item.get("kind", "MESSAGE") == "MESSAGE" and item.get("content", "").strip()
+    ]
+    recent_start = max(0, len(payloads) - RECENT_CONTEXT_MESSAGE_LIMIT)
+    history = payloads[recent_start:]
+    summarized_count = min(max(int(snapshot.get("summarizedMessageCount") or 0), 0), len(payloads))
+    unsummarized_start = min(summarized_count, recent_start)
+    unsummarized = payloads[unsummarized_start:recent_start] if recent_start > unsummarized_start else []
+    summary_history = _take_for_summary(unsummarized) if len(unsummarized) >= SUMMARY_REFRESH_THRESHOLD else []
+    return {
+        "history": history,
+        "context_summary": snapshot.get("summary", ""),
+        "summary_history": summary_history,
+        "next_summarized_message_count": unsummarized_start + len(summary_history),
+    }
+
+
+def _take_for_summary(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    selected: list[dict[str, str]] = []
+    total_chars = 0
+    for message in messages[:SUMMARY_SOURCE_MESSAGE_LIMIT]:
+        role = message.get("role", "")
+        content = message.get("content", "")
+        message_chars = len(role) + len(content)
+        if not selected and message_chars > SUMMARY_SOURCE_CHAR_LIMIT:
+            allowed = max(0, SUMMARY_SOURCE_CHAR_LIMIT - len(role))
+            selected.append({"role": role, "content": content[:allowed]})
+            break
+        if selected and total_chars + message_chars > SUMMARY_SOURCE_CHAR_LIMIT:
+            break
+        selected.append({"role": role, "content": content})
+        total_chars += message_chars
+    return selected
 
 
 app = create_app()

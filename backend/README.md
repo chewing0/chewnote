@@ -47,13 +47,14 @@ uvicorn main:app --reload --port 8000
 
 说明：
 
-- 后端支持直接读取 `.env` 中的模型配置
-- 也支持客户端在请求体里通过 `model_config` 传入 `base_url / model / api_key`
-- 当请求体带了 `model_config`，后端会优先使用请求内配置；没有时才回退到环境变量
+- 模型配置以后端 `.env` 为唯一来源，Android 只配置后端地址
+- `GET /config/model` 可查看后端当前模型名、Base URL 和 API Key 是否已配置，但不会返回明文 Key
+- `/agent/process` 不再接受客户端模型覆盖，避免前后端配置不一致
 
 ## 3. 接口
 
 - `GET /health`
+- `GET /config/model`
 - `POST /auth/register`
 - `POST /auth/login`
 - `POST /auth/refresh`
@@ -77,12 +78,7 @@ Authorization: Bearer your_access_token
 ```json
 {
   "text": "明天下午3点和客户复盘，咖啡28元",
-  "history": [],
-  "model_config": {
-    "base_url": "https://api.moonshot.cn/v1",
-    "model": "moonshot-v1-8k",
-    "api_key": "your_api_key"
-  }
+  "conversation_id": "可选，留空则后端新建对话"
 }
 ```
 
@@ -126,15 +122,16 @@ Authorization: Bearer your_access_token
 1. Agent 根据自然语言判断是否需要记日程、记账
 2. 通过工具调用生成结构化动作
 3. 连续多天日程会先在后端展开为多条 `add_schedule`
-4. 后端统一返回 `reply + actions` 给安卓端
+4. 后端统一返回 `reply + changed_domains` 给安卓端，安卓端据此 `/sync` 刷新本地只读缓存
 
 聊天行为：
 
 - 普通聊天：只返回 reply，actions 为空
-- 涉及日程：调用 add_schedule 并在 actions 返回记录动作
-- 涉及连续多天重复日程：调用 add_schedule_series，再展开为多条 add_schedule
-- 涉及记账：调用 add_ledger 并在 actions 返回记录动作
+- 涉及日程：调用 schedule tools 并直接写入后端 PostgreSQL
+- 涉及连续多天重复日程：调用 create_schedule_series 并直接写入多条日程
+- 涉及记账：调用 ledger tools 并直接写入后端 PostgreSQL
 - 同时涉及日程和记账：会同时调用两个工具
+- 如果模型回复了“已记录”但没有真正发起工具调用，后端会对常见“花了/收入 + 金额”语句做保底解析并写入账单，避免聊天显示成功但统计页没有数据
 
 ## 5. 模块结构
 
@@ -147,5 +144,5 @@ Authorization: Bearer your_access_token
 ## 6. 联调约定
 
 - Android 模拟器默认访问 `http://10.0.2.2:8000/`
-- 如果客户端设置页填了模型配置，请求会把 `model_config` 透传给后端
+- 客户端设置页只保存后端地址，模型 Base URL、模型名和 API Key 均在后端 `.env` 修改
 - 客户端当前已收紧网络日志，不会打印完整请求体

@@ -11,9 +11,18 @@ class ModelConfig(BaseModel):
     api_key: str = Field(default="", description="LLM API key")
 
 
+class BackendModelStatus(BaseModel):
+    base_url: str = ""
+    model: str = ""
+    api_key_configured: bool = False
+    source: str = "backend_env"
+    runtime_override_enabled: bool = False
+
+
 class AgentRequest(BaseModel):
     text: str = Field(min_length=1)
     session_id: str = ""
+    conversation_id: str = ""
     history: list[dict[str, str]] = Field(default_factory=list)
     context_summary: str = ""
     summary_history: list[dict[str, str]] = Field(default_factory=list)
@@ -30,6 +39,34 @@ class AgentResponse(BaseModel):
     actions: list[AgentAction]
     context_summary: str | None = None
     changed_domains: list[str] = Field(default_factory=list)
+    conversation_id: str = ""
+
+
+class ConversationRecord(BaseModel):
+    id: str = ""
+    title: str = "新对话"
+    createdAt: int = 0
+    updatedAt: int = 0
+    lastMessageAt: int = 0
+    messageCount: int = 0
+
+
+class ConversationCreate(BaseModel):
+    title: str = ""
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = None
+
+
+class ChatMessageRecord(BaseModel):
+    id: str = ""
+    conversationId: str = ""
+    role: str
+    content: str = ""
+    kind: str = "MESSAGE"
+    actionReceipt: dict[str, Any] | None = None
+    createdAt: int = 0
 
 
 class ScheduleRecord(BaseModel):
