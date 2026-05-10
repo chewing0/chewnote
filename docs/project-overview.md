@@ -1,236 +1,202 @@
-# 项目总览
+# 项目接手总览
 
-## 1. 项目定位
+这份文档是 `MyLife Agent` 的统一接手入口，目标是帮助新的对话或新的协作者在几分钟内建立上下文。  
+如果只读一份文档，优先读这一份。
 
-`TimePaper Agent` 是一个前后端分离的原型项目，目标是把自然语言输入同时映射到两个轻量个人效率场景：
+## 1. 项目目标
 
-- 聊天式交互
-- 记账记录
-- 日程安排
+`MyLife Agent` 是一个以聊天为主入口的个人效率应用，当前围绕三类核心任务展开：
 
-当前形态更接近“可运行原型”而不是完整产品：
+1. 用自然语言记录和管理日程。
+2. 用自然语言记录和查看记账数据。
+3. 在一个移动端应用里，把聊天、日程、记账和个人账号体系串成闭环。
 
-- Android 端负责 UI、配置、本地持久化和动作落地
-- Python 后端负责调用大模型并把自然语言解析成结构化动作
-- 真正的数据源目前在客户端本地 `DataStore`，后端不保存用户数据
+当前项目已经不是最早的“纯本地原型”，而是演进成了“Android 客户端 + Python 后端 + PostgreSQL”的可运行应用。
 
-## 2. 仓库结构
+## 2. 当前产品形态
 
-```text
-.
-|-- app/                    Android 应用（Jetpack Compose）
-|   `-- src/main/java/com/example/myapplication/
-|       |-- agent/         状态管理、数据模型、网络层、本地存储
-|       `-- ui/            导航、页面、主题、设计组件
-|-- backend/               FastAPI + LangChain 后端
-|   |-- agent_backend/
-|   |   |-- api.py         FastAPI 应用与路由
-|   |   |-- orchestrator.py 动作编排与响应整理
-|   |   |-- llm_client.py  模型调用与工具定义
-|   |   `-- schemas.py     Pydantic 数据模型
-|   |-- main.py            后端入口
-|   `-- requirements.txt   Python 依赖
-|-- docs/                  项目文档
-|   |-- project-overview.md
-|   `-- schedule-ui-optimization.md
-|-- gradle/                Gradle Wrapper 与版本目录
-|-- build.gradle.kts       根构建脚本
-`-- settings.gradle.kts    模块声明（当前仅 app）
-```
+当前应用的默认入口仍然是聊天页，而不是仪表盘首页。整体结构如下：
 
-## 3. Android 端结构
+- `agent`：聊天主入口，用户通过自然语言发起操作。
+- `schedule`：日程查看、筛选、编辑、删除。
+- `ledger`：账单统计、洞察、编辑、删除。
+- `profile/settings`：账号、后端连接、模型状态与个人设置。
 
-### 3.1 入口与导航
+现在的核心交互链路是：
 
-- [MainActivity.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/MainActivity.kt) 负责设置 Compose 根节点。
-- [AgentApp.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/ui/AgentApp.kt) 是应用壳层，包含底部导航和页面路由。
-- 当前页面包含：
-  - `agent`：聊天页
-  - `schedule`：日程页
-  - `ledger`：记账页
-  - `settings`：设置页
+1. 用户登录。
+2. 在聊天页输入自然语言。
+3. 后端解析意图并生成回复与动作。
+4. 后端持久化会话、日程、账单。
+5. 客户端同步结构化数据到本地缓存并刷新界面。
 
-### 3.2 状态与数据流
+## 3. 现在已经完成的内容
 
-- [AppViewModel.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/agent/AppViewModel.kt) 是前端单一业务入口。
-- `chatMessages`、`scheduleItems`、`ledgerEntries`、`modelSettings` 都从本地 `DataStore` 读取并转成 `StateFlow`。
-- 用户在聊天页提交文本后：
-  1. 先把用户消息写入本地聊天记录。
-  2. 再携带聊天历史和模型配置请求后端。
-  3. 后端返回 `reply + actions`。
-  4. 前端按动作写入本地日程或账单。
-  5. UI 依赖 `StateFlow` 自动刷新。
+### 3.1 基础架构
 
-### 3.3 本地存储
+- Android 端已经完成 Jetpack Compose 单应用壳层。
+- 后端已经完成 FastAPI 服务和 PostgreSQL 存储。
+- 已经有账号体系，包括注册、登录、刷新 token、登出、修改密码、找回密码。
+- 聊天、日程、账单都已经接入后端持久化。
 
-- [LocalStore.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/agent/data/LocalStore.kt) 使用 `Preferences DataStore`。
-- 数据以 JSON 字符串形式整体存储，主要 key 包括：
+### 3.2 聊天闭环
+
+- 聊天页已经支持多轮对话。
+- 会话列表已经独立出来，支持创建、切换、删除、重命名。
+- 消息可以删除，聊天历史以“会话”为单位存放在后端。
+- Agent 状态已经接入连通性探测，进入聊天页会自动检查后端和模型是否可用。
+- 回复文本已经做过纯文本约束，不再依赖 Markdown 渲染。
+
+### 3.3 日程功能
+
+- 支持通过 Agent 新增日程。
+- 支持查看某天日程、全部日程、未来优先和历史筛选。
+- 支持编辑、删除日程。
+- 日程页已经做过一轮可用性优化，包括更轻的日历展示、快捷日期切换、最近新增高亮和按聊天回执定位。
+
+### 3.4 记账功能
+
+- 支持通过 Agent 新增账单。
+- 支持收入 / 支出两类数据。
+- 支持编辑、删除账单。
+- 账单数据已经做了日期与类型标准化，修过“记录成功但统计不显示”的问题。
+- 统计页已经升级为“分析页”，包含周期汇总、同比/环比式对比、关键洞察、分类分布、趋势图和重点记录。
+- 收入和支出的分类已经收口为常见类别加“其他”，不再允许无限发散。
+
+### 3.5 设置与安全
+
+- API Key 不再以明文写入普通本地存储。
+- 客户端网络日志已经做过收紧，避免把敏感请求体直接打到日志。
+- 设置页已经支持连接测试、当前后端状态说明和模型可用性反馈。
+- 当前策略是“模型配置以后端为准”，客户端不再主导实际模型选择。
+
+## 4. 当前真实架构
+
+### 4.1 Android 端
+
+主要代码位于：
+
+- [app/src/main/java/com/example/myapplication/ui/AgentApp.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/ui/AgentApp.kt)
+- [app/src/main/java/com/example/myapplication/agent/AppViewModel.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/agent/AppViewModel.kt)
+- [app/src/main/java/com/example/myapplication/agent/data/LocalStore.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/agent/data/LocalStore.kt)
+- [app/src/main/java/com/example/myapplication/agent/data/AgentDatabase.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/agent/data/AgentDatabase.kt)
+
+职责划分：
+
+- `AppViewModel` 是应用侧主要业务入口，负责聊天、同步、账号状态、连接探测和页面状态管理。
+- `LocalStore` 负责本地缓存和迁移逻辑。
+- `Room` 现在用于缓存结构化数据：
   - `ledger_entries`
   - `schedule_items`
-  - `chat_messages`
-  - `model_settings`
-- API Key 已改为单独存放在加密本地存储中，不再写入普通 `DataStore`。
-- 优点是实现简单、便于原型快速迭代。
-- 代价是：
-  - 不适合大量数据
-  - 缺少结构化查询
-  - 聊天、账单、日程仍然是本地 JSON 存储
+- `DataStore` 现在主要保留轻量配置和部分会话级辅助数据，不再承担结构化数据主存储。
 
-### 3.4 网络与模型设置
+### 4.2 后端
 
-- [NetworkModule.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/agent/net/NetworkModule.kt) 通过 Retrofit + Gson 发请求。
-- 默认后端地址是 `http://10.0.2.2:8000/`，并会把 `localhost/127.0.0.1` 自动替换成模拟器可访问的 `10.0.2.2`。
-- [SettingsScreen.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/ui/screen/SettingsScreen.kt) 允许用户在客户端设置：
-  - 后端地址
-  - 模型 Base URL
-  - 模型名
-  - API Key
-- 这些设置会随请求一起通过 `model_config` 发给后端，所以前后端都支持“运行时切模型”。
-- Android 网络日志已调整为：
-  - Debug 只记录基础请求信息，不打印请求体
-  - Release 关闭网络日志
+主要代码位于：
 
-### 3.5 页面职责
+- [backend/agent_backend/api.py](/D:/wby/MyApplication/backend/agent_backend/api.py)
+- [backend/agent_backend/orchestrator.py](/D:/wby/MyApplication/backend/agent_backend/orchestrator.py)
+- [backend/agent_backend/llm_client.py](/D:/wby/MyApplication/backend/agent_backend/llm_client.py)
+- [backend/agent_backend/storage.py](/D:/wby/MyApplication/backend/agent_backend/storage.py)
 
-- [AgentHomeScreen.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/ui/screen/AgentHomeScreen.kt)
-  - 聊天气泡列表
-  - 输入框与发送按钮
-  - 长按复制/删除消息
-  - 加载态“处理中”指示
-- [ScheduleScreen.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/ui/screen/ScheduleScreen.kt)
-  - 日历视图与全部日程双视图
-  - “今天 / 明天 / 7天后”快捷筛选
-  - 未来优先 / 全部 / 历史筛选
-  - 编辑、删除日程
-- [LedgerScreen.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/ui/screen/LedgerScreen.kt)
-  - 按日 / 月 / 年统计
-  - 结余、收入、支出汇总
-  - 分类占比饼图
-  - 趋势柱状图
-  - 编辑、删除账单
+当前后端已经不只是一个“转发模型请求”的轻量服务，而是承担这些职责：
 
-## 4. 后端结构
+- 用户认证与 token 管理。
+- 会话和消息持久化。
+- 日程和账单的增删改查。
+- Agent 请求编排。
+- PostgreSQL 数据存储。
 
-### 4.1 API 层
+当前已经暴露的能力包括：
 
-- [backend/main.py](/D:/wby/MyApplication/backend/main.py) 只负责导出应用实例。
-- [backend/agent_backend/api.py](/D:/wby/MyApplication/backend/agent_backend/api.py) 创建 FastAPI 应用并暴露：
-  - `GET /health`
-  - `POST /agent/process`
-- 当前 CORS 是全开放配置，方便原型联调。
+- 健康检查。
+- 模型状态检查。
+- 注册 / 登录 / 刷新 / 登出 / 密码相关接口。
+- 会话列表、会话消息、删除消息。
+- 日程 CRUD。
+- 账单 CRUD。
+- Agent 自然语言处理入口。
 
-### 4.2 编排层
+## 5. 当前数据流
 
-- [backend/agent_backend/orchestrator.py](/D:/wby/MyApplication/backend/agent_backend/orchestrator.py) 负责：
-  - 调用 `LLMClient.parse`
-  - 过滤非法动作
-  - 兜底生成回复文案
-- 对前端真正开放的动作只有两类：
-  - `add_schedule`
-  - `add_ledger`
+### 5.1 聊天请求链路
 
-### 4.3 模型与工具层
+1. 客户端确保用户已登录。
+2. 客户端拿当前会话 ID 调用 `/agent/process`。
+3. 后端结合当前会话上下文和模型配置执行 Agent。
+4. 后端把聊天消息和结构化结果落库。
+5. 客户端根据 `changedDomains` 再次同步日程 / 账单缓存。
+6. UI 根据本地 `StateFlow` 刷新。
 
-- [backend/agent_backend/llm_client.py](/D:/wby/MyApplication/backend/agent_backend/llm_client.py) 使用：
-  - `langchain`
-  - `langchain-openai`
-  - `ChatOpenAI`
-  - `StructuredTool`
-- 工具定义有三类：
-  - `add_schedule`
-  - `add_schedule_series`
-  - `add_ledger`
-- 其中 `add_schedule_series` 只在后端内部展开为多条 `add_schedule`，最终前端仍然只接收单条日程动作。
+### 5.2 结构化数据链路
 
-### 4.4 请求处理链路
+- 后端是日程和账单的真实数据源。
+- Android 端本地 `Room` 是缓存层，不是最终真相源。
+- 登录后会执行同步，退出或换账号时会清理 / 切换本地缓存归属。
 
-1. Android 发送 `text + history + model_config` 到 `/agent/process`。
-2. FastAPI 把 `model_config` 映射为 `runtime_config`。
-3. `LLMClient` 优先使用请求内配置，否则回退到环境变量。
-4. LangChain Agent 根据系统提示选择是否调用工具。
-5. 工具把结果暂存在 `_runtime_actions`。
-6. `orchestrator` 过滤动作并返回给客户端。
-7. Android 客户端把动作落到本地 `DataStore`。
+这点和项目早期版本很不一样。  
+以后继续改功能时，要优先按“后端主存储、客户端本地缓存”理解，而不是按“纯本地本”理解。
 
-## 5. 关键数据模型
+## 6. 主要页面现状
 
-Android 侧 [DomainModels.kt](/D:/wby/MyApplication/app/src/main/java/com/example/myapplication/agent/model/DomainModels.kt) 与后端 [schemas.py](/D:/wby/MyApplication/backend/agent_backend/schemas.py) 基本对齐：
+### 6.1 聊天页
 
-- `AgentRequest`
-  - `text`
-  - `history`
-  - `model_config`
-- `AgentResponse`
-  - `reply`
-  - `actions`
-- `AgentAction`
-  - `type`
-  - `payload`
-- 客户端落地实体：
-  - `ScheduleItem`
-  - `LedgerEntry`
-  - `ChatMessage`
-  - `ModelSettings`
+- 是默认入口。
+- 已做过输入区与软键盘联动修复。
+- 有 Agent 在线状态展示。
+- 支持自然语言记录日程和账单。
+- 仍然是产品最核心的使用入口。
 
-## 6. 运行与依赖
+### 6.2 日程页
 
-### 6.1 Android
+- 页面方向偏“轻量日历 + 列表浏览”。
+- 日历体积已经收紧，不再是很重的整块组件。
+- 支持最近新增高亮、目标日期定位、未来优先筛选。
 
-- Kotlin `2.2.10`
-- Android Gradle Plugin `9.1.0`
-- Compose BOM `2024.09.00`
-- 关键依赖：
-  - Navigation Compose
-  - DataStore Preferences
-  - Retrofit + Gson
-  - OkHttp Logging Interceptor
+### 6.3 记账页
 
-### 6.2 Backend
+- 默认更偏“统计分析”而不是只看流水。
+- 已经加入关键洞察、结构占比、趋势和重点记录。
+- 明细列表近期做过压缩和分类收口，但视觉密度仍然可能继续微调。
 
-- FastAPI `0.116.1`
-- Uvicorn `0.35.0`
-- LangChain `0.3.27`
-- langchain-openai `0.3.31`
+### 6.4 设置 / 个人页
 
-### 6.3 环境变量
+- 设置页偏“联调与状态确认”。
+- 个人页承担账号相关流程。
+- 当前连接探测已经成为判断 Agent 是否可用的主要入口之一。
 
-后端支持以下环境变量：
+## 7. 最近已经做过的重要迭代
 
-- `OPENAI_API_KEY`
-- `OPENAI_BASE_URL`
-- `OPENAI_MODEL`
-- `OPENAI_TIMEOUT_SECONDS`
+为了让后续对话快速理解项目现状，这里只保留高价值变化：
 
-如果没有提供 API Key，后端会直接返回“未配置模型 API Key”的提示，不执行工具调用。
+- 项目命名从早期 `TimePaper Agent` 统一到了 `MyLife Agent`，但后端标题和个别旧文档里仍可能残留旧名称。
+- 结构化数据从早期本地 JSON 存储迁移到了 `Room` 缓存。
+- 后端已经补齐账号体系、会话体系和 PostgreSQL 存储。
+- 模型配置策略改成“以后端为准”，客户端只做连接与状态辅助。
+- 聊天页做过多轮输入框、键盘联动和状态展示优化。
+- 日程页做过一轮专题优化，原先独立的日程 UI 文档内容已经并入本总览，不再单独维护。
+- 记账页统计能力已经从基础汇总演进到分析页。
 
-## 7. 文档结构约定
+## 8. 已知边界和注意事项
 
-当前 `docs/` 已经可以按下面的职责理解和维护：
+- 仓库里仍有一些历史文案、旧命名或终端显示乱码痕迹，维护时要以当前代码行为为准。
+- 后端 CORS 目前仍偏宽松，更适合开发联调，不是严格生产配置。
+- 项目虽然已经有后端和数据库，但整体仍偏单人使用、快速迭代阶段。
+- 自动化测试覆盖仍然不算完整，很多改动主要依赖实际联调验证。
+- 记账和日程已经后端化，但 UI 层仍有不少体验优化空间，尤其是视觉密度、空状态、细节文案和操作反馈。
 
-- `project-overview.md`
-  - 面向接手项目的人
-  - 记录结构、链路、运行方式、注意事项
-- `schedule-ui-optimization.md`
-  - 面向某个功能专题
-  - 记录方案、目标、验收标准
+## 9. 继续迭代时的优先理解顺序
 
-建议后续在 `docs/` 中只提交需要长期维护的 Markdown 源文件和稳定素材；本地预览缓存、编辑器配置、临时输出目录不纳入版本控制。
+新对话或新协作者建议按这个顺序理解项目：
 
-## 8. 当前现状与注意事项
+1. 先看这份总览，确认项目当前真实形态。
+2. 再看 [docs/README.md](/D:/wby/MyApplication/docs/README.md) 了解文档分工。
+3. 如果要改聊天主流程，优先看 `AppViewModel`、`AgentRepository`、后端 `api.py / orchestrator.py / llm_client.py`。
+4. 如果要改数据行为，优先确认“后端是真实源，客户端是缓存”这条原则。
+5. 如果要改界面细节，再分别进入 `AgentHomeScreen`、`ScheduleScreen`、`LedgerScreen`、`SettingsScreen`。
 
-- 仓库中已包含 [backend/.env.example](/D:/wby/MyApplication/backend/.env.example)，后端环境变量可以基于它创建本地 `.env`。
-- 后端不落库，真正的数据持久化都在客户端本地 `DataStore`。
-- 设置页中的 API Key 现在使用加密本地存储；旧版保存在 `DataStore` 中的值会在应用启动时自动迁移。
-- 自动化测试基本还是模板文件：
-  - [ExampleUnitTest.kt](/D:/wby/MyApplication/app/src/test/java/com/example/myapplication/ExampleUnitTest.kt)
-  - [ExampleInstrumentedTest.kt](/D:/wby/MyApplication/app/src/androidTest/java/com/example/myapplication/ExampleInstrumentedTest.kt)
-- 当前根工程只包含 `:app` 模块，`backend` 作为独立 Python 服务存在，不受 Gradle 管理。
+## 10. 后续文档维护约定
 
-## 9. 后续维护建议
-
-- 如果项目继续演进，优先补一份真实的 `.env.example`。
-- 如果数据量会增长，优先评估把本地 JSON DataStore 迁移到 Room。
-- 如果要让后端成为真正数据源，需要补用户体系、持久化层和动作执行层。
-- 如果要提升可维护性，建议补最少一层：
-  - Android ViewModel/Store 单元测试
-  - 后端 `/agent/process` 接口测试
+- 这份文档负责回答“项目是什么、现在做到哪里、主要结构如何工作”。
+- 不再把短期专题优化拆成很多散落的小文档，除非后续真的形成长期维护的独立模块。
+- 如果后端架构、存储策略、登录方式或主页面职责发生变化，要优先更新这份文档。
