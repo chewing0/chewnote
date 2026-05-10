@@ -194,8 +194,8 @@ fun SettingsScreen(viewModel: AppViewModel) {
         }
 
         ProfilePage.Settings -> ProfileSubPage(
-            title = "模型与后端",
-            subtitle = "配置后端地址、模型参数和连接测试",
+            title = "前端连接",
+            subtitle = "仅配置后端地址和连接测试",
             onBack = { currentPage = ProfilePage.Home },
         ) {
             ModelSettingsPanel(
@@ -733,7 +733,6 @@ private fun ModelSettingsPanel(
         }
 
         ConfigSummaryBlock(
-            backendUrl = NetworkModule.resolveBackendUrl(candidateSettings.backendUrl),
             backendModelStatus = backendModelStatus,
             onRefresh = onRefreshModelStatus,
         )
@@ -762,7 +761,6 @@ private fun ModelSettingsPanel(
 
 @Composable
 private fun ConfigSummaryBlock(
-    backendUrl: String,
     backendModelStatus: BackendModelStatus?,
     onRefresh: () -> Unit,
 ) {
@@ -776,11 +774,10 @@ private fun ConfigSummaryBlock(
         ) {
             Text("后端统一模型配置", style = MaterialTheme.typography.titleSmall, color = InkDeep)
             Text(
-                "模型 Base URL、模型名称和 API Key 只从后端 .env 读取；前端不会覆盖，避免前后端配置不一致。",
+                "模型 Base URL、模型名称和 API Key 只从后端 .env 读取；前端这里只设置后端 URL，避免出现两个后端地址。",
                 style = MaterialTheme.typography.bodySmall,
                 color = InkSoft,
             )
-            SummaryLine(label = "后端地址", value = backendUrl)
             SummaryLine(label = "模型来源", value = "后端 .env")
             SummaryLine(label = "Base URL", value = backendModelStatus?.baseUrl?.ifBlank { "未读取" } ?: "未读取")
             SummaryLine(label = "模型名称", value = backendModelStatus?.model?.ifBlank { "未读取" } ?: "未读取")

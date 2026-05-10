@@ -1,5 +1,6 @@
 package com.example.myapplication.ui.screen
 
+import android.graphics.Paint
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -24,7 +25,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,11 +56,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.myapplication.agent.AppViewModel
 import com.example.myapplication.agent.model.LedgerCategoryCatalog
 import com.example.myapplication.agent.model.LedgerEntry
@@ -1143,12 +1146,18 @@ private fun TrendBarChart(
                 .height(190.dp),
         ) {
             val groupWidth = size.width / data.size.coerceAtLeast(1)
-            val chartBottom = size.height - 18.dp.toPx()
+            val chartBottom = size.height - 26.dp.toPx()
             val cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+            val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textAlign = Paint.Align.CENTER
+                textSize = 11.sp.toPx()
+            }
+            val labelBaseline = size.height - 5.dp.toPx()
 
             data.forEachIndexed { index, item ->
                 val left = index * groupWidth
-                if (item.highlight) {
+                val hasValue = item.primaryValue > 0.0 || item.secondaryValue > 0.0
+                if (item.highlight && hasValue) {
                     drawRoundRect(
                         color = Color(0x14D28D38),
                         topLeft = Offset(left + groupWidth * 0.08f, 0f),
@@ -1165,44 +1174,53 @@ private fun TrendBarChart(
                     val expenseLeft = left + groupWidth * 0.24f
                     val incomeLeft = expenseLeft + barWidth + gap
 
-                    drawRoundRect(
-                        color = TrendExpenseTone,
-                        topLeft = Offset(expenseLeft, chartBottom - expenseHeight),
-                        size = Size(barWidth, expenseHeight.coerceAtLeast(2f)),
-                        cornerRadius = cornerRadius,
-                    )
-                    drawRoundRect(
-                        color = TrendIncomeTone,
-                        topLeft = Offset(incomeLeft, chartBottom - incomeHeight),
-                        size = Size(barWidth, incomeHeight.coerceAtLeast(2f)),
-                        cornerRadius = cornerRadius,
-                    )
+                    if (item.primaryValue > 0.0) {
+                        val drawHeight = expenseHeight.coerceAtLeast(2f)
+                        drawRoundRect(
+                            color = TrendExpenseTone,
+                            topLeft = Offset(expenseLeft, chartBottom - drawHeight),
+                            size = Size(barWidth, drawHeight),
+                            cornerRadius = cornerRadius,
+                        )
+                    }
+                    if (item.secondaryValue > 0.0) {
+                        val drawHeight = incomeHeight.coerceAtLeast(2f)
+                        drawRoundRect(
+                            color = TrendIncomeTone,
+                            topLeft = Offset(incomeLeft, chartBottom - drawHeight),
+                            size = Size(barWidth, drawHeight),
+                            cornerRadius = cornerRadius,
+                        )
+                    }
                 } else {
                     val barHeight = ((animatedPrimary[index] / maxValue) * (chartBottom - 6.dp.toPx())).toFloat()
                     val barWidth = groupWidth * 0.42f
-                    drawRoundRect(
-                        color = item.color,
-                        topLeft = Offset(left + (groupWidth - barWidth) / 2f, chartBottom - barHeight),
-                        size = Size(barWidth, barHeight.coerceAtLeast(2f)),
-                        cornerRadius = cornerRadius,
+                    if (item.primaryValue > 0.0) {
+                        val drawHeight = barHeight.coerceAtLeast(2f)
+                        drawRoundRect(
+                            color = item.color,
+                            topLeft = Offset(left + (groupWidth - barWidth) / 2f, chartBottom - drawHeight),
+                            size = Size(barWidth, drawHeight),
+                            cornerRadius = cornerRadius,
+                        )
+                    }
+                }
+
+                if (item.axisLabel.isNotEmpty()) {
+                    labelPaint.color = if (item.highlight) InkDeep.toArgb() else InkSoft.toArgb()
+                    labelPaint.isFakeBoldText = item.highlight
+                    val halfLabelWidth = labelPaint.measureText(item.axisLabel) / 2f
+                    val labelCenter = (left + groupWidth / 2f).coerceIn(
+                        halfLabelWidth,
+                        size.width - halfLabelWidth,
+                    )
+                    drawContext.canvas.nativeCanvas.drawText(
+                        item.axisLabel,
+                        labelCenter,
+                        labelBaseline,
+                        labelPaint,
                     )
                 }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            data.forEach { item ->
-                Text(
-                    text = item.axisLabel,
-                    modifier = Modifier.widthIn(min = 18.dp),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (item.highlight) InkDeep else InkSoft,
-                    fontWeight = if (item.highlight) FontWeight.Bold else FontWeight.Normal,
-                )
             }
         }
     }
